@@ -1,0 +1,638 @@
+<script setup lang="ts">
+import { ArrowDown, Edit, Plus, FolderAdd, FolderOpened, BrushFilled, Delete } from '@element-plus/icons-vue';
+import { useI18n } from 'vue-i18n';
+import type { DrawerCollapsedState } from './WorkPage.types';
+
+const { t } = useI18n();
+
+const workspaceDraftName = defineModel<string>('workspaceDraftName', { required: true });
+const drawerCollapsed = defineModel<DrawerCollapsedState>('drawerCollapsed', { required: true });
+const useSpecificIbDump = defineModel<boolean>('useSpecificIbDump', { default: false });
+
+defineProps<{
+  workspaceName: string;
+  workspaceOptions: string[];
+  isSpecificIbDumpToggling: boolean;
+}>();
+
+const emit = defineEmits<{
+  createWorkspace: [];
+  createFromConfig: [];
+  openWorkspace: [];
+  openGeneratedMod: [];
+  clearWorkspace: [];
+  deleteWorkspace: [name: string];
+  selectWorkspace: [name: string];
+  folderMenu: [cmd: string];
+  textureMenu: [cmd: unknown];
+  specificIbDumpToggle: [value: string | number | boolean];
+}>();
+
+const toggleDrawer = (key: keyof DrawerCollapsedState) => {
+  drawerCollapsed.value = {
+    ...drawerCollapsed.value,
+    [key]: !drawerCollapsed.value[key],
+  };
+};
+</script>
+
+<template>
+  <aside class="side-column glass-scrollbar">
+    <div class="workspace-controls">
+      <section class="side-drawer" :class="{ 'is-collapsed': drawerCollapsed.workspace }">
+        <button
+          type="button"
+          class="side-drawer-head"
+          @click="toggleDrawer('workspace')"
+        >
+          <el-icon class="side-drawer-arrow"><ArrowDown /></el-icon>
+          <span>工作空间</span>
+        </button>
+        <div v-show="!drawerCollapsed.workspace" class="side-drawer-body">
+          <div class="workspace-card">
+          <el-input
+            v-model="workspaceDraftName"
+            class="workspace-inline-input"
+            :placeholder="t('workPage.ui.selectOrEnterWorkspace')"
+            clearable
+            :prefix-icon="Edit"
+            @keyup.enter="emit('createWorkspace')"
+          />
+
+          <div class="workspace-action-strip workspace-action-strip--management">
+            <el-tooltip :content="t('workPage.actions.createWorkspace')" placement="bottom">
+              <button
+                type="button"
+                class="workspace-inline-action workspace-inline-action--primary"
+                :class="{ 'is-disabled': !workspaceDraftName }"
+                @click="workspaceDraftName && emit('createWorkspace')"
+              >
+                <el-icon><Plus /></el-icon>
+              </button>
+            </el-tooltip>
+            <el-tooltip :content="t('workPage.actions.createWorkspaceFromCurrentDrawIB')" placement="bottom">
+              <button
+                type="button"
+                class="workspace-inline-action workspace-inline-action--secondary"
+                :class="{ 'is-disabled': !workspaceDraftName }"
+                @click="workspaceDraftName && emit('createFromConfig')"
+              >
+                <el-icon><FolderAdd /></el-icon>
+              </button>
+            </el-tooltip>
+            <el-tooltip :content="t('workPage.actions.openWorkspaceFolder')" placement="bottom">
+              <div class="workspace-icon-btn" role="button" tabindex="0" @click="emit('openWorkspace')">
+                <el-icon><FolderOpened /></el-icon>
+              </div>
+            </el-tooltip>
+            <el-tooltip :content="t('workPage.actions.openGeneratedModFolder')" placement="bottom">
+              <div
+                class="workspace-icon-btn workspace-icon-btn--generated"
+                :class="{ 'is-disabled': !workspaceName }"
+                role="button"
+                tabindex="0"
+                @click="workspaceName && emit('openGeneratedMod')"
+              >
+                <el-icon><FolderAdd /></el-icon>
+              </div>
+            </el-tooltip>
+            <el-tooltip :content="t('workPage.actions.clearWorkspace')" placement="bottom">
+              <div
+                class="workspace-icon-btn workspace-icon-btn--warning"
+                :class="{ 'is-disabled': !workspaceName }"
+                role="button"
+                tabindex="0"
+                @click="workspaceName && emit('clearWorkspace')"
+              >
+                <el-icon class="workspace-clean-icon"><BrushFilled /></el-icon>
+              </div>
+            </el-tooltip>
+            <el-tooltip :content="t('workPage.actions.deleteWorkspace')" placement="bottom">
+              <button
+                type="button"
+                class="workspace-inline-action workspace-inline-action--danger"
+                :class="{ 'is-disabled': !workspaceDraftName }"
+                @click="workspaceDraftName && emit('deleteWorkspace', workspaceDraftName)"
+              >
+                <el-icon><Delete /></el-icon>
+              </button>
+            </el-tooltip>
+          </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="side-drawer" :class="{ 'is-collapsed': drawerCollapsed.workspaceSelector }">
+        <button
+          type="button"
+          class="side-drawer-head"
+          @click="toggleDrawer('workspaceSelector')"
+        >
+          <el-icon class="side-drawer-arrow"><ArrowDown /></el-icon>
+          <span>选择工作空间</span>
+        </button>
+        <div v-show="!drawerCollapsed.workspaceSelector" class="side-drawer-body">
+          <div class="workspace-list glass-scrollbar">
+            <button
+              v-for="name in workspaceOptions"
+              :key="name"
+              type="button"
+              class="workspace-list-item"
+              :class="{ 'is-active': name === workspaceName }"
+              @click="emit('selectWorkspace', name)"
+            >
+              <span class="workspace-list-name">{{ name }}</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section class="side-drawer" :class="{ 'is-collapsed': drawerCollapsed.commonFolders }">
+        <button
+          type="button"
+          class="side-drawer-head"
+          @click="toggleDrawer('commonFolders')"
+        >
+          <el-icon class="side-drawer-arrow"><ArrowDown /></el-icon>
+          <span>常用位置</span>
+        </button>
+        <div v-show="!drawerCollapsed.commonFolders" class="side-drawer-body">
+          <div class="side-menu-list">
+            <button type="button" class="side-menu-trigger" @click="emit('folderMenu', 'migoto')">
+              <span>{{ t('workPage.menu.open3DmigotoFolder') }}</span>
+            </button>
+            <button type="button" class="side-menu-trigger" @click="emit('folderMenu', 'mods')">
+              <span>{{ t('workPage.menu.openModsFolder') }}</span>
+            </button>
+            <button type="button" class="side-menu-trigger" @click="emit('folderMenu', 'latestFA')">
+              <span>{{ t('workPage.menu.openLatestFrameAnalysisFolder') }}</span>
+            </button>
+            <button type="button" class="side-menu-trigger" @click="emit('folderMenu', 'latestFALog')">
+              <span>{{ t('workPage.menu.openLatestFrameAnalysisLog') }}</span>
+            </button>
+            <button type="button" class="side-menu-trigger" @click="emit('folderMenu', 'latestFADeduped')">
+              <span>{{ t('workPage.menu.openDedupedFolderInLatestFrameAnalysis') }}</span>
+            </button>
+            <button type="button" class="side-menu-trigger" @click="emit('folderMenu', 'ssmt4GlobalConfigs')">
+              <span>{{ t('workPage.menu.openSSMT4GlobalConfigsFolder') }}</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section class="side-drawer" :class="{ 'is-collapsed': drawerCollapsed.textureExtract }">
+        <button
+          type="button"
+          class="side-drawer-head"
+          @click="toggleDrawer('textureExtract')"
+        >
+          <el-icon class="side-drawer-arrow"><ArrowDown /></el-icon>
+          <span>贴图提取</span>
+        </button>
+        <div v-show="!drawerCollapsed.textureExtract" class="side-drawer-body">
+          <div class="side-menu-list">
+            <button type="button" class="side-menu-trigger" @click="emit('textureMenu', 'allTextures')">
+              <span>{{ t('workPage.menu.extractAllTextureTypes') }}</span>
+            </button>
+            <button type="button" class="side-menu-trigger" @click="emit('textureMenu', 'dedupedTextures')">
+              <span>{{ t('workPage.menu.extractDedupedTextures') }}</span>
+            </button>
+            <button type="button" class="side-menu-trigger" @click="emit('textureMenu', 'trianglelistTextures')">
+              <span>{{ t('workPage.menu.extractTrianglelistTextures') }}</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section class="side-drawer" :class="{ 'is-collapsed': drawerCollapsed.otherFunctions }">
+        <button
+          type="button"
+          class="side-drawer-head"
+          @click="toggleDrawer('otherFunctions')"
+        >
+          <el-icon class="side-drawer-arrow"><ArrowDown /></el-icon>
+          <span>其它功能</span>
+        </button>
+        <div v-show="!drawerCollapsed.otherFunctions" class="side-drawer-body">
+          <div class="specific-ib-dump-toggle">
+            <div class="specific-ib-dump-toggle__header">
+              <span>{{ t('workPage.actions.specificIbDump') }}</span>
+              <el-switch
+                v-model="useSpecificIbDump"
+                :loading="isSpecificIbDumpToggling"
+                style="--el-switch-on-color: var(--theme-success);"
+                @change="(val: string | number | boolean) => emit('specificIbDumpToggle', val)"
+              />
+            </div>
+            <p class="specific-ib-dump-toggle__hint">{{ t('workPage.ui.specificIbDumpHint') }}</p>
+          </div>
+        </div>
+      </section>
+    </div>
+  </aside>
+</template>
+
+<style scoped>
+.side-column {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  max-height: 100%;
+  display: flex;
+  gap: 14px;
+  align-self: stretch;
+  position: sticky;
+  top: 0;
+  overflow-y: auto;
+  overflow-x: visible;
+  padding-right: 4px;
+}
+
+.workspace-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  min-height: max-content;
+  overflow: visible;
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
+.side-drawer {
+  flex: 0 0 auto;
+  border-radius: 10px;
+  border: 1px solid rgba(var(--theme-surface-tint-rgb), 0.14);
+  background: rgba(255, 255, 255, 0.025);
+  overflow: hidden;
+}
+
+.side-drawer-head {
+  width: 100%;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  color: rgba(var(--theme-text-primary-rgb), 0.92);
+  font-size: 13px;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+
+.side-drawer-head:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.side-drawer-arrow {
+  flex: 0 0 auto;
+  transition: transform 0.18s ease;
+  color: rgba(var(--theme-surface-tint-rgb), 0.78);
+}
+
+.side-drawer.is-collapsed .side-drawer-arrow {
+  transform: rotate(-90deg);
+}
+
+.side-drawer-body {
+  padding: 10px 16px 16px;
+}
+
+.side-drawer-body > * + * {
+  margin-top: 12px;
+}
+
+.side-menu-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.workspace-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  overflow: visible;
+}
+
+.workspace-icon-btn {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 0;
+  margin-left: 0;
+  border-radius: 8px;
+  border: 1px solid rgba(var(--theme-surface-tint-rgb), 0.18);
+  background: rgba(var(--theme-surface-tint-rgb), 0.06);
+  color: rgba(var(--theme-surface-tint-rgb), 0.78);
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s ease;
+}
+
+.workspace-clean-icon {
+  transform: rotate(135deg);
+}
+
+.workspace-icon-btn:hover {
+  background: rgba(var(--theme-surface-tint-rgb), 0.12);
+  border-color: rgba(var(--theme-surface-tint-rgb), 0.34);
+  color: var(--theme-accent);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(var(--theme-surface-tint-rgb), 0.12);
+}
+
+.workspace-action-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 32px);
+  gap: 6px;
+  justify-content: start;
+  padding: 3px 0 0;
+  overflow: visible;
+}
+
+.workspace-action-strip--management {
+  grid-template-columns: repeat(6, 32px);
+  padding-top: 0;
+}
+
+.workspace-inline-input {
+  width: 100%;
+  display: block;
+  margin-bottom: 8px;
+}
+
+.workspace-inline-input :deep(.el-input__wrapper) {
+  min-height: 34px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+  box-shadow: 0 0 0 1px rgba(var(--theme-surface-tint-rgb), 0.10) inset;
+}
+
+.workspace-inline-input :deep(.el-input__wrapper:hover),
+.workspace-inline-input :deep(.el-input__wrapper.is-focus) {
+  box-shadow: 0 0 0 1px rgba(var(--theme-surface-tint-rgb), 0.32) inset;
+}
+
+.workspace-inline-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.workspace-icon-btn--generated {
+  border-color: rgba(var(--theme-surface-tint-rgb), 0.22);
+  background: rgba(var(--theme-surface-tint-rgb), 0.08);
+  color: rgba(var(--theme-surface-tint-rgb), 0.86);
+}
+
+.workspace-icon-btn--generated:hover {
+  border-color: rgba(var(--theme-surface-tint-rgb), 0.40);
+  background: rgba(var(--theme-surface-tint-rgb), 0.14);
+  color: var(--theme-accent);
+  box-shadow: 0 6px 18px rgba(var(--theme-surface-tint-rgb), 0.14);
+}
+
+.workspace-icon-btn--warning {
+  border-color: rgba(230, 162, 60, 0.24);
+  background: rgba(230, 162, 60, 0.10);
+  color: rgba(255, 205, 110, 0.94);
+}
+
+.workspace-icon-btn--warning:hover {
+  border-color: rgba(230, 162, 60, 0.42);
+  background: rgba(230, 162, 60, 0.18);
+  color: rgba(255, 224, 145, 1);
+  box-shadow: 0 6px 18px rgba(230, 162, 60, 0.16);
+}
+
+.workspace-icon-btn--danger {
+  border-color: rgba(245, 108, 108, 0.42);
+  background: rgba(245, 108, 108, 0.18);
+  color: rgba(255, 178, 178, 1);
+}
+
+.workspace-icon-btn--danger:hover {
+  border-color: rgba(245, 108, 108, 0.68);
+  background: rgba(245, 108, 108, 0.28);
+  color: rgba(255, 220, 220, 1);
+  box-shadow: 0 6px 18px rgba(245, 108, 108, 0.24);
+}
+
+.workspace-icon-btn.is-disabled,
+.workspace-icon-btn.is-disabled:hover {
+  opacity: 0.35;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.workspace-inline-action {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid rgba(var(--theme-surface-tint-rgb), 0.18);
+  background: rgba(var(--theme-surface-tint-rgb), 0.07);
+  color: rgba(var(--theme-surface-tint-rgb), 0.82);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.workspace-inline-action:hover {
+  border-color: rgba(var(--theme-surface-tint-rgb), 0.34);
+  background: rgba(var(--theme-surface-tint-rgb), 0.12);
+  color: var(--theme-accent);
+  transform: translateY(-1px);
+}
+
+.workspace-inline-action--primary {
+  border-color: rgba(64, 158, 255, 0.32);
+  background: rgba(64, 158, 255, 0.10);
+  color: rgba(160, 211, 255, 0.96);
+}
+
+.workspace-inline-action--primary:hover {
+  border-color: rgba(64, 158, 255, 0.48);
+  background: rgba(64, 158, 255, 0.18);
+  color: rgba(215, 238, 255, 1);
+}
+
+.workspace-inline-action--secondary {
+  border-color: rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(var(--theme-text-secondary-rgb), 0.74);
+}
+
+.workspace-inline-action--secondary:hover {
+  border-color: rgba(var(--theme-surface-tint-rgb), 0.24);
+  background: rgba(var(--theme-surface-tint-rgb), 0.08);
+  color: rgba(var(--theme-text-secondary-rgb), 0.94);
+}
+
+.workspace-inline-action--danger {
+  border-color: rgba(245, 108, 108, 0.34);
+  background: rgba(245, 108, 108, 0.12);
+  color: rgba(255, 188, 188, 0.98);
+}
+
+.workspace-inline-action--danger:hover {
+  border-color: rgba(245, 108, 108, 0.54);
+  background: rgba(245, 108, 108, 0.22);
+  color: rgba(255, 226, 226, 1);
+}
+
+.workspace-inline-action.is-disabled,
+.workspace-inline-action.is-disabled:hover {
+  opacity: 0.36;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.workspace-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-height: 220px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 2px;
+  border-radius: 8px;
+  border: 0;
+  background: transparent;
+}
+
+.workspace-list-item {
+  width: 100%;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.028);
+  color: rgba(232, 236, 245, 0.82);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.workspace-list-name {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
+  line-height: 1.35;
+}
+
+.workspace-list-item:hover {
+  background: rgba(var(--theme-surface-tint-rgb), 0.07);
+  border-color: rgba(var(--theme-surface-tint-rgb), 0.20);
+  color: rgba(var(--theme-text-primary-rgb), 0.94);
+  transform: translateY(-1px);
+}
+
+.workspace-list-item.is-active {
+  border-color: rgba(var(--theme-surface-tint-rgb), 0.34);
+  background: rgba(var(--theme-surface-tint-rgb), 0.10);
+  color: rgba(var(--theme-text-primary-rgb), 0.98);
+  box-shadow: 0 6px 18px rgba(var(--theme-surface-tint-rgb), 0.08);
+}
+
+.side-menu-trigger {
+  width: 100%;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(var(--theme-surface-tint-rgb), 0.14);
+  background: rgba(var(--theme-surface-tint-rgb), 0.045);
+  color: rgba(var(--theme-text-secondary-rgb), 0.76);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+  box-sizing: border-box;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s ease;
+  white-space: normal;
+  text-align: left;
+}
+
+.side-menu-trigger span {
+  min-width: 0;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.side-menu-trigger:hover {
+  border-color: rgba(var(--theme-surface-tint-rgb), 0.28);
+  background: rgba(var(--theme-surface-tint-rgb), 0.09);
+  color: var(--theme-accent);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(var(--theme-surface-tint-rgb), 0.08);
+}
+
+.specific-ib-dump-toggle {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(var(--theme-surface-tint-rgb), 0.035);
+  border: 1px solid rgba(var(--theme-surface-tint-rgb), 0.12);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+  position: relative;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.specific-ib-dump-toggle::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(var(--theme-surface-tint-rgb), 0.16), transparent);
+  pointer-events: none;
+  border-radius: 8px 8px 0 0;
+}
+
+.specific-ib-dump-toggle__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.94rem;
+  color: rgba(var(--theme-text-secondary-rgb), 0.86);
+}
+
+.specific-ib-dump-toggle__hint {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.58);
+}
+</style>

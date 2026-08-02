@@ -1,0 +1,167 @@
+/* ═══════════════════════════════════════════════
+   SSMT4 — CSS Custom Properties
+   ═══════════════════════════════════════════════ */
+
+:root {
+  /* ═══ Theme color variables (static fallbacks — AppTheme.ts overrides at runtime) ═══ */
+  --theme-accent: rgba(255, 255, 255, 0.90);
+  --theme-accent-rgb: 255, 255, 255;
+  --theme-accent-hover: rgba(255, 255, 255, 1);
+  --theme-accent-hover-rgb: 255, 255, 255;
+  --theme-surface-tint: #FFFFFF;
+  --theme-surface-tint-rgb: 255, 255, 255;
+  --theme-text-primary: #FFFFFF;
+  --theme-text-primary-rgb: 255, 255, 255;
+  --theme-text-secondary: #CCCCCC;
+  --theme-text-secondary-rgb: 204, 204, 204;
+  --theme-success: #018B8D;
+  --theme-success-rgb: 1, 139, 141;
+  --theme-warning: #F9D46C;
+  --theme-warning-rgb: 249, 212, 108;
+  --theme-danger: #C8161D;
+  --theme-danger-rgb: 200, 22, 29;
+  --theme-tooltip-bg: #000000;
+  --theme-tooltip-bg-rgb: 0, 0, 0;
+
+  /* ═══ Text accent aliases (used by glass-button.css) ═══ */
+  --text-accent: var(--theme-accent);
+  --text-accent-hover: var(--theme-accent-hover);
+
+  /* ═══ New canonical names ═══ */
+
+  /* Background / Surface */
+  --t-bg: transparent;
+  --t-material-bg: rgba(8, 22, 32, 0.75);
+  --t-material-border: 1px solid rgba(var(--theme-surface-tint-rgb), 0.10);
+  --t-material-shadow: 0 16px 48px rgba(0, 0, 0, 0.40), 0 0 0 1px rgba(var(--theme-surface-tint-rgb), 0.02);
+  --t-surface: rgba(255, 255, 255, 0.06);
+  --t-surface-solid: var(--t-material-bg);
+  --t-surface-soft: rgba(255, 255, 255, 0.04);
+  --t-surface-subtle: rgba(255, 255, 255, 0.02);
+  --t-surface-raised: rgba(255, 255, 255, 0.08);
+  --t-surface-hover: rgba(255, 255, 255, 0.12);
+
+  /* Borders */
+  --t-border: 1px solid rgba(255, 255, 255, 0.20);
+  --t-border-soft: 1px solid rgba(255, 255, 255, 0.10);
+  --t-border-subtle: 1px solid rgba(255, 255, 255, 0.06);
+  --t-border-light: 1px solid rgba(255, 255, 255, 0.04);
+  --t-border-color: rgba(255, 255, 255, 0.20);
+  --t-border-color-soft: rgba(255, 255, 255, 0.10);
+  --t-border-color-strong: rgba(255, 255, 255, 0.35);
+
+  /* Blur / Glass effects */
+  --t-blur-strong: blur(28px) saturate(1.6);
+  --t-blur-medium: blur(12px) saturate(1.4);
+  --t-blur-soft: blur(6px) saturate(1.3);
+  --t-blur-subtle: blur(4px);
+  --t-blur-minimal: blur(2px);
+
+  /* Shadows */
+  --t-shadow: 0 24px 64px rgba(0, 0, 0, 0.30), 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
+  --t-shadow-card: 0 4px 24px rgba(0, 0, 0, 0.10), 0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+  --t-shadow-section: 0 4px 24px rgba(0, 0, 0, 0.06);
+  --t-shadow-btn: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --t-shadow-btn-primary: 0 4px 16px rgba(var(--crystal-rgb), 0.10);
+
+  /* Hairlines */
+  --t-hairline: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.15), transparent);
+  --t-hairline-subtle: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
+
+  /* Text */
+  --t-text: rgba(var(--theme-text-primary-rgb), 0.90);
+  --t-text-muted: rgba(var(--theme-text-secondary-rgb), 0.65);
+  --t-text-soft: rgba(255, 255, 255, 0.40);
+
+  /* Interactive fills */
+  --t-fill-raised: rgba(255, 255, 255, 0.08);
+  --t-fill-hover: rgba(255, 255, 255, 0.14);
+  --t-border-accent: rgba(255, 255, 255, 0.20);
+  --t-border-accent-strong: rgba(255, 255, 255, 0.34);
+
+  /* Dark card (MarkTexture style) */
+  --t-card-dark-bg:
+    linear-gradient(145deg, rgba(var(--crystal-rgb), 0.07), rgba(var(--crystal-rgb), 0.025)),
+    rgba(255, 255, 255, 0.035);
+  --t-card-dark-border: 1px solid rgba(var(--crystal-rgb), 0.12);
+  --t-card-dark-shadow: 0 16px 38px rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(var(--crystal-rgb), 0.035) inset;
+
+  /* Semantic backgrounds */
+  --t-danger-bg: rgba(var(--theme-danger-rgb), 0.08);
+  --t-danger-border: rgba(var(--theme-danger-rgb), 0.18);
+  --t-danger-text: rgba(var(--theme-danger-rgb), 0.85);
+  --t-warning-bg: rgba(var(--theme-warning-rgb), 0.08);
+  --t-warning-border: rgba(var(--theme-warning-rgb), 0.18);
+  --t-warning-text: rgba(var(--theme-warning-rgb), 0.85);
+  --t-success-bg: rgba(var(--theme-success-rgb), 0.08);
+  --t-success-border: rgba(var(--theme-success-rgb), 0.18);
+  --t-success-text: rgba(var(--theme-success-rgb), 0.85);
+
+  /* Popper / dropdown */
+  --t-popper-bg: var(--t-material-bg);
+  --t-popper-text: #cdd6f4;
+  --t-popper-text-hover: #fff;
+  --t-popper-bg-hover: rgba(255, 255, 255, 0.08);
+  --t-popper-bg-selected: rgba(255, 255, 255, 0.12);
+  --t-popper-border: var(--t-material-border);
+  --t-popper-shadow: var(--t-material-shadow);
+
+  /* ═══ Backward-compatible aliases ═══ */
+  --glass-bg: var(--t-surface);
+  --glass-bg-soft: var(--t-surface-soft);
+  --glass-bg-subtle: var(--t-surface-subtle);
+  --glass-bg-strong: var(--t-surface-raised);
+
+  --glass-blur-strong: var(--t-blur-strong);
+  --glass-blur-medium: var(--t-blur-medium);
+  --glass-blur-soft: var(--t-blur-soft);
+  --glass-blur-subtle: var(--t-blur-subtle);
+  --glass-blur-minimal: var(--t-blur-minimal);
+
+  --glass-border: var(--t-border);
+  --glass-border-soft: var(--t-border-soft);
+  --glass-border-subtle: var(--t-border-subtle);
+  --glass-border-light: var(--t-border-light);
+
+  --glass-shadow: var(--t-shadow);
+  --glass-shadow-card: var(--t-shadow-card);
+  --glass-shadow-section: var(--t-shadow-section);
+  --glass-shadow-btn-hover: var(--t-shadow-btn);
+  --glass-shadow-btn-primary: var(--t-shadow-btn-primary);
+
+  --glass-hairline: var(--t-hairline);
+  --glass-hairline-subtle: var(--t-hairline-subtle);
+
+  --dark-card-bg: var(--t-card-dark-bg);
+  --dark-card-border: var(--t-card-dark-border);
+  --dark-card-shadow: var(--t-card-dark-shadow);
+
+  --text-primary: var(--t-text);
+  --text-secondary: var(--t-text-muted);
+  --text-meta: var(--t-text-soft);
+
+  --primary-bg: var(--t-fill-raised);
+  --primary-border: var(--t-border-accent);
+  --primary-hover-bg: var(--t-fill-hover);
+  --primary-hover-border: var(--t-border-accent-strong);
+
+  /* Element Plus overrides */
+  --el-bg-color: var(--t-bg);
+  --el-bg-color-overlay: var(--t-surface-raised);
+  --el-fill-color: var(--t-surface-raised);
+  --el-fill-color-light: var(--t-surface);
+  --el-fill-color-lighter: var(--t-surface);
+  --el-fill-color-extra-light: var(--t-surface);
+  --el-fill-color-dark: rgba(255, 255, 255, 0.12);
+  --el-fill-color-darker: rgba(255, 255, 255, 0.06);
+  --el-fill-color-blank: transparent;
+  --el-border-color: var(--t-border-color);
+  --el-border-color-light: var(--t-border-color);
+  --el-border-color-lighter: var(--t-border-color-soft);
+  --el-border-color-extra-light: rgba(255, 255, 255, 0.04);
+  --el-text-color-primary: var(--t-text);
+  --el-text-color-regular: var(--t-text-muted);
+  --el-text-color-secondary: var(--t-text-soft);
+  --el-mask-color: rgba(0, 0, 0, 0.25);
+  --el-mask-color-extra-light: rgba(0, 0, 0, 0.16);
+}

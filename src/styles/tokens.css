@@ -1,0 +1,54 @@
+/* ═══════════════════════════════════════════════
+   SSMT4 — Design Tokens (radii, spacing, accent aliases)
+   ═══════════════════════════════════════════════
+   
+   Color/theme variables have moved to theme.css.
+   Only non-color design tokens go here.
+   ═══════════════════════════════════════════════ */
+
+:root {
+  /* ── Border Radii ── */
+  --radius-modal: 24px;
+  --radius-card: 16px;
+  --radius-panel: 14px;
+  --radius-section: 10px;
+  --radius-input: 8px;
+  --radius-button: 10px;
+  --radius-badge: 999px;
+
+  /* ── Spacing ── */
+  --space-section: 22px 28px 22px 32px;
+  --space-card: 18px;
+  --space-panel: 18px;
+
+  /* ── Crystal accent aliases ── */
+  --crystal: rgba(255, 255, 255, 0.86);
+  --crystal-rgb: 255, 255, 255;
+  --crystal-bg: rgba(255, 255, 255, 0.08);
+  --crystal-border: rgba(255, 255, 255, 0.20);
+  --crystal-text: rgba(255, 255, 255, 0.70);
+  --gold: var(--crystal);
+  --gold-rgb: var(--crystal-rgb);
+  --gold-bg: var(--crystal-bg);
+  --gold-border: var(--crystal-border);
+  --gold-text: var(--crystal-text);
+
+  /* ── Semantic color aliases (reference theme.css) ── */
+  --green-bg: var(--t-success-bg, rgba(var(--theme-success-rgb), 0.08));
+  --green-border: var(--t-success-border, rgba(var(--theme-success-rgb), 0.18));
+  --green-text: var(--t-success-text, rgba(var(--theme-success-rgb), 0.85));
+  --green-hover-bg: rgba(var(--theme-success-rgb), 0.14);
+  --green-hover-border: rgba(var(--theme-success-rgb), 0.30);
+
+  --orange-bg: var(--t-warning-bg, rgba(var(--theme-warning-rgb), 0.08));
+  --orange-border: var(--t-warning-border, rgba(var(--theme-warning-rgb), 0.18));
+  --orange-text: var(--t-warning-text, rgba(var(--theme-warning-rgb), 0.85));
+  --orange-hover-bg: rgba(var(--theme-warning-rgb), 0.14);
+  --orange-hover-border: rgba(var(--theme-warning-rgb), 0.30);
+
+  --red-bg: var(--t-danger-bg, rgba(var(--theme-danger-rgb), 0.08));
+  --red-border: var(--t-danger-border, rgba(var(--theme-danger-rgb), 0.18));
+  --red-text: var(--t-danger-text, rgba(var(--theme-danger-rgb), 0.85));
+  --red-hover-bg: rgba(var(--theme-danger-rgb), 0.14);
+  --red-hover-border: rgba(var(--theme-danger-rgb), 0.30);
+}

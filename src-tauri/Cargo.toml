@@ -1,0 +1,61 @@
+[package]
+name = "ssmt4"
+version = "1.0.0"
+description = "A Simple Mod Tool Based On 3Dmigoto"
+authors = ["NicoMico"]
+edition = "2021"
+default-run = "ssmt4"
+
+[profile.dev]
+incremental = true      # 启用增量编译
+
+split-debuginfo = "unpacked"
+
+[profile.release]
+incremental = true
+
+opt-level = 1
+lto = false
+codegen-units = 16
+panic = "abort"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "ssmt4_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri-plugin-dialog = "2.6.0"
+tauri-plugin-shell = "2"
+tauri-plugin-fs = "2.4.5"
+tauri-plugin-single-instance = "2"
+tauri-plugin-http = "2"
+tauri-plugin-store = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-clipboard-manager = "2"
+tauri-plugin-global-shortcut = "2"
+reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls"] }
+tokio = { version = "1", features = ["full"] }
+sysinfo = "0.30"
+zip = "0.6"
+futures-util = "0.3"
+md5 = "0.7"
+notify = "8.2.0"
+sevenz-rust = { version = "0.6.1", features = ["aes256"] }
+unrar = "0.4"
+encoding_rs = "0.8.35"
+chrono = "0.4"
+base64 = "0.22"
+trash = "5"
+rusqlite = { version = "0.32", features = ["bundled"] }

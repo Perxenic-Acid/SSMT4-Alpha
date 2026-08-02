@@ -1,0 +1,218 @@
+/*
+   WorkPage glass repair
+   Scoped by page root, but loaded globally so Element Plus internals and
+   teleported/compound components are styled from one place.
+*/
+
+.work-page-container {
+  --work-glass-surface: rgba(var(--theme-surface-tint-rgb), 0.035);
+  --work-glass-surface-soft: rgba(var(--theme-surface-tint-rgb), 0.022);
+  --work-glass-surface-hover: rgba(var(--theme-surface-tint-rgb), 0.085);
+  --work-glass-border: rgba(var(--theme-surface-tint-rgb), 0.14);
+  --work-glass-border-strong: rgba(var(--theme-surface-tint-rgb), 0.30);
+  --work-glass-text: rgba(var(--theme-text-secondary-rgb), 0.84);
+  --work-glass-text-strong: rgba(var(--theme-text-primary-rgb), 0.96);
+  --work-glass-blur: blur(12px) saturate(1.18);
+}
+
+.work-page-container .panel,
+.work-page-container .inner-panel,
+.work-page-container .side-drawer,
+.work-page-container .specific-ib-dump-toggle {
+  background: var(--work-glass-surface-soft) !important;
+  border: 1px solid var(--work-glass-border) !important;
+  border-radius: 8px !important;
+  box-shadow:
+    0 10px 28px rgba(0, 0, 0, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.045) !important;
+  backdrop-filter: var(--work-glass-blur) !important;
+  -webkit-backdrop-filter: var(--work-glass-blur) !important;
+}
+
+.work-page-container .panel::before,
+.work-page-container .inner-panel::before,
+.work-page-container .specific-ib-dump-toggle::before {
+  background: linear-gradient(90deg, transparent, rgba(var(--theme-surface-tint-rgb), 0.18), transparent) !important;
+}
+
+.work-page-container .side-drawer {
+  overflow: hidden;
+}
+
+.work-page-container .side-drawer-head {
+  background: transparent !important;
+  color: var(--work-glass-text-strong) !important;
+}
+
+.work-page-container .side-drawer-head:hover {
+  background: rgba(255, 255, 255, 0.045) !important;
+}
+
+.work-page-container .glass-table.el-table {
+  --el-table-bg-color: transparent;
+  --el-table-tr-bg-color: transparent;
+  --el-table-header-bg-color: transparent;
+  --el-table-border-color: rgba(var(--theme-surface-tint-rgb), 0.12);
+  --el-table-row-hover-bg-color: rgba(var(--theme-surface-tint-rgb), 0.075);
+  --el-table-text-color: var(--work-glass-text);
+  --el-table-header-text-color: var(--work-glass-text-strong);
+  background: rgba(var(--theme-surface-tint-rgb), 0.026) !important;
+  border: 1px solid rgba(var(--theme-surface-tint-rgb), 0.11) !important;
+  border-radius: 8px !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.025) !important;
+  overflow: hidden !important;
+  backdrop-filter: var(--work-glass-blur) !important;
+  -webkit-backdrop-filter: var(--work-glass-blur) !important;
+}
+
+.work-page-container .glass-table.el-table,
+.work-page-container .glass-table .el-table__inner-wrapper,
+.work-page-container .glass-table .el-table__body-wrapper,
+.work-page-container .glass-table .el-table__header-wrapper,
+.work-page-container .glass-table .el-table__footer-wrapper,
+.work-page-container .glass-table .el-scrollbar,
+.work-page-container .glass-table .el-scrollbar__wrap,
+.work-page-container .glass-table .el-scrollbar__view,
+.work-page-container .glass-table table,
+.work-page-container .glass-table thead,
+.work-page-container .glass-table tbody,
+.work-page-container .glass-table tr,
+.work-page-container .glass-table .el-table__row,
+.work-page-container .glass-table .el-table__empty-block,
+.work-page-container .glass-table .el-table__placeholder,
+.work-page-container .glass-table .el-table__append-wrapper {
+  background: transparent !important;
+}
+
+.work-page-container .glass-table .el-table__inner-wrapper,
+.work-page-container .glass-table .el-table__body-wrapper,
+.work-page-container .glass-table .el-table__header-wrapper,
+.work-page-container .glass-table .el-scrollbar,
+.work-page-container .glass-table .el-scrollbar__wrap,
+.work-page-container .glass-table .el-scrollbar__view {
+  border-radius: 8px !important;
+  overflow: hidden !important;
+}
+
+.work-page-container .glass-table th.el-table__cell {
+  background: rgba(18, 18, 20, 0.48) !important;
+  color: var(--work-glass-text-strong) !important;
+  font-weight: 700;
+  border-bottom: 1px solid rgba(var(--theme-surface-tint-rgb), 0.15) !important;
+  backdrop-filter: blur(14px) saturate(1.16) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(1.16) !important;
+}
+
+.work-page-container .glass-table td.el-table__cell {
+  background: rgba(var(--theme-surface-tint-rgb), 0.024) !important;
+  color: var(--work-glass-text) !important;
+  border-bottom: 1px solid rgba(var(--theme-surface-tint-rgb), 0.065) !important;
+}
+
+.work-page-container .glass-table .el-table__cell {
+  border-right: 1px solid rgba(var(--theme-surface-tint-rgb), 0.075) !important;
+}
+
+.work-page-container .glass-table .el-table__cell:last-child {
+  border-right: 0 !important;
+}
+
+.work-page-container .glass-table .el-table__body tr:hover > td.el-table__cell {
+  background: rgba(var(--theme-surface-tint-rgb), 0.07) !important;
+}
+
+.work-page-container .glass-table.el-table::before,
+.work-page-container .glass-table.el-table::after,
+.work-page-container .glass-table .el-table__inner-wrapper::before,
+.work-page-container .glass-table .el-table__inner-wrapper::after {
+  background-color: rgba(var(--theme-surface-tint-rgb), 0.10) !important;
+}
+
+.work-page-container .el-input__wrapper,
+.work-page-container .el-select__wrapper {
+  min-height: 34px;
+  border-radius: 8px;
+  background: rgba(var(--theme-surface-tint-rgb), 0.045) !important;
+  box-shadow: inset 0 0 0 1px rgba(var(--theme-surface-tint-rgb), 0.14) !important;
+  color: var(--work-glass-text) !important;
+  backdrop-filter: blur(10px) saturate(1.12);
+  -webkit-backdrop-filter: blur(10px) saturate(1.12);
+}
+
+.work-page-container .el-input__wrapper:hover,
+.work-page-container .el-input__wrapper.is-focus,
+.work-page-container .el-select__wrapper:hover,
+.work-page-container .el-select__wrapper.is-focused {
+  background: rgba(var(--theme-surface-tint-rgb), 0.07) !important;
+  box-shadow: inset 0 0 0 1px var(--work-glass-border-strong) !important;
+}
+
+.work-page-container .el-input__inner,
+.work-page-container .el-select__selected-item,
+.work-page-container .el-select__placeholder:not(.is-transparent),
+.work-page-container .el-select__placeholder:not(.is-transparent) > span {
+  color: var(--work-glass-text-strong) !important;
+}
+
+.work-page-container .el-input__inner::placeholder,
+.work-page-container .el-select__placeholder.is-transparent {
+  color: rgba(var(--theme-text-secondary-rgb), 0.44) !important;
+}
+
+.work-page-container .el-tabs__item {
+  color: rgba(var(--theme-text-secondary-rgb), 0.66) !important;
+  background: transparent !important;
+}
+
+.work-page-container .el-tabs__item.is-active,
+.work-page-container .el-tabs__item:hover {
+  color: var(--theme-accent) !important;
+}
+
+.work-page-container .el-tabs__nav-wrap::after {
+  background-color: rgba(var(--theme-surface-tint-rgb), 0.13) !important;
+}
+
+.work-page-container .el-tabs__active-bar {
+  background-color: var(--theme-accent) !important;
+}
+
+.work-page-container .el-checkbox__inner {
+  background: rgba(10, 12, 18, 0.52) !important;
+  border-color: rgba(var(--theme-surface-tint-rgb), 0.22) !important;
+}
+
+.work-page-container .el-checkbox__input.is-checked .el-checkbox__inner {
+  background-color: rgba(var(--theme-surface-tint-rgb), 0.80) !important;
+  border-color: rgba(var(--theme-surface-tint-rgb), 0.95) !important;
+}
+
+.work-page-container .el-checkbox__label {
+  color: rgba(var(--theme-text-secondary-rgb), 0.86) !important;
+}
+
+.work-page-container .workspace-tab-chip,
+.work-page-container .workspace-list-item,
+.work-page-container .side-menu-trigger,
+.work-page-container .workspace-icon-btn,
+.work-page-container .workspace-inline-action,
+.work-page-container .row-move-btn,
+.work-page-container .config-row-delete-btn {
+  backdrop-filter: blur(10px) saturate(1.12);
+  -webkit-backdrop-filter: blur(10px) saturate(1.12);
+}
+
+.work-page-container .workspace-list-item,
+.work-page-container .side-menu-trigger {
+  background: rgba(var(--theme-surface-tint-rgb), 0.045) !important;
+  border-color: rgba(var(--theme-surface-tint-rgb), 0.14) !important;
+  color: var(--work-glass-text) !important;
+}
+
+.work-page-container .workspace-list-item:hover,
+.work-page-container .side-menu-trigger:hover,
+.work-page-container .workspace-list-item.is-active {
+  background: var(--work-glass-surface-hover) !important;
+  border-color: var(--work-glass-border-strong) !important;
+  color: var(--work-glass-text-strong) !important;
+}

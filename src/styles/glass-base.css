@@ -1,0 +1,281 @@
+/* ═══════════════════════════════════════════════
+   SSMT4 — Glass Base Container Classes
+   ═══════════════════════════════════════════════ */
+
+/* ── Dark Gradient Card (MarkTexture style) ── */
+.glass-dark-card {
+  background: var(--dark-card-bg);
+  border: var(--dark-card-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--dark-card-shadow);
+}
+
+/* ── Panel (top-level section container) ──
+     Visual-only — no padding/border-radius so components
+     with their own scoped .glass-panel can layer without bleed.  */
+.glass-panel {
+  background: var(--glass-bg-subtle);
+  border: var(--glass-border-subtle);
+  box-shadow: var(--glass-shadow-section);
+  position: relative;
+  backdrop-filter: var(--glass-blur-minimal);
+  -webkit-backdrop-filter: var(--glass-blur-minimal);
+}
+
+.glass-panel::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--glass-hairline-subtle);
+  pointer-events: none;
+}
+
+/* ── Panel with standard padding & radius ── */
+.glass-panel--padded {
+  border-radius: var(--radius-panel);
+  padding: var(--space-panel);
+}
+.glass-panel--padded::before {
+  border-radius: var(--radius-panel) var(--radius-panel) 0 0;
+}
+
+/* ── Inner Section (nested inside panel) ── */
+.glass-section {
+  background: var(--glass-bg-subtle);
+  border: var(--glass-border-subtle);
+  border-radius: var(--radius-section);
+  padding: 14px;
+  box-shadow: var(--glass-shadow-section);
+  position: relative;
+  backdrop-filter: var(--glass-blur-minimal);
+  -webkit-backdrop-filter: var(--glass-blur-minimal);
+  transition: all 0.25s ease;
+}
+
+.glass-section::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--glass-hairline-subtle);
+  pointer-events: none;
+  border-radius: var(--radius-section) var(--radius-section) 0 0;
+}
+
+/* ── Card (standalone content block) ── */
+.glass-card {
+  background: var(--glass-bg-soft);
+  border: var(--glass-border-soft);
+  border-radius: var(--radius-card);
+  padding: var(--space-card);
+  box-shadow: var(--glass-shadow-card);
+  position: relative;
+  backdrop-filter: var(--glass-blur-minimal);
+  -webkit-backdrop-filter: var(--glass-blur-minimal);
+  transition: all 0.25s ease;
+}
+
+.glass-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--glass-hairline);
+  pointer-events: none;
+  border-radius: var(--radius-card) var(--radius-card) 0 0;
+}
+
+.glass-card.slim {
+  padding-top: 14px;
+  padding-bottom: 14px;
+}
+
+/* ── Glass Dialog / Modal ── */
+.glass-dialog {
+  background: var(--t-surface-solid, #111827);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border: var(--t-material-border);
+  border-radius: var(--radius-modal);
+  box-shadow: var(--t-material-shadow);
+  overflow: hidden;
+}
+
+.el-dialog {
+  background: var(--t-surface-solid, #111827);
+  border: var(--t-material-border);
+  box-shadow: var(--t-material-shadow);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.glass-dialog .el-dialog__header,
+.glass-dialog .el-dialog__body,
+.glass-dialog .el-dialog__footer {
+  background: transparent;
+}
+
+.glass-dialog .el-dialog__header {
+  padding: 18px 24px 14px;
+  position: relative;
+}
+
+.glass-dialog .el-dialog__header::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
+  pointer-events: none;
+}
+
+.glass-dialog .el-dialog__title {
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.glass-dialog .el-dialog__body {
+  padding: 20px 24px;
+  color: var(--text-secondary);
+}
+
+.glass-dialog .el-dialog__footer {
+  padding: 0 24px 20px;
+  border-top: none;
+}
+
+/* ── Ambient overlay backdrop ── */
+.glass-overlay {
+  background: rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+/* ── Divider (use instead of border-top) ── */
+.glass-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.06);
+  pointer-events: none;
+}
+
+/* ── Separator ── */
+.glass-separator {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.10);
+  margin: 20px 0 16px;
+}
+
+/* ═══════════════════════════════════════════════
+   Global glass scrollbar utilities
+   ═══════════════════════════════════════════════ */
+
+/* ── Standard (10px, suitable for main panels) ── */
+.glass-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+}
+
+.glass-scrollbar::-webkit-scrollbar {
+  width: 10px;
+}
+
+.glass-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.glass-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.glass-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.42);
+  background-clip: padding-box;
+}
+
+/* ── Thin (4px, suitable for sidebars & lists) ── */
+.glass-scrollbar--thin {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+}
+
+.glass-scrollbar--thin::-webkit-scrollbar {
+  width: 4px;
+}
+
+.glass-scrollbar--thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.glass-scrollbar--thin::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 2px;
+}
+
+.glass-scrollbar--thin::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.30);
+}
+
+/* ── Hidden (scrollable but visually hidden) ── */
+.glass-scrollbar--hidden {
+  scrollbar-width: none;
+}
+
+.glass-scrollbar--hidden::-webkit-scrollbar {
+  width: 0;
+  background: transparent;
+}
+
+/* ── Toggle container ── */
+.glass-toggle-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--glass-bg-subtle);
+  border: var(--glass-border-subtle);
+  box-shadow: var(--glass-shadow-section);
+  position: relative;
+  backdrop-filter: var(--glass-blur-soft);
+  -webkit-backdrop-filter: var(--glass-blur-soft);
+}
+
+.glass-toggle-box::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--glass-hairline-subtle);
+  pointer-events: none;
+  border-radius: 12px 12px 0 0;
+}
+
+.glass-toggle-box__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.94rem;
+}
+
+.glass-toggle-box__hint {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  opacity: 0.72;
+}

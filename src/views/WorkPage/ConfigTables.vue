@@ -1,0 +1,182 @@
+<script setup lang="ts">
+import { Delete } from '@element-plus/icons-vue';
+import { useI18n } from 'vue-i18n';
+import type { SkipRow, VSCheckRow } from './WorkPage.types';
+
+const { t } = useI18n();
+
+const skipRows = defineModel<SkipRow[]>('skipRows', { required: true });
+const vsRows = defineModel<VSCheckRow[]>('vsRows', { required: true });
+
+const emit = defineEmits<{
+  removeSkipRow: [index: number];
+  generateIBSkip: [];
+  removeVSCheckRow: [index: number];
+  updateVSCheck: [];
+  generateVSCheck: [];
+}>();
+</script>
+
+<template>
+  <section class="inner-panel">
+    <div class="table-row">
+      <el-table :data="skipRows" border size="small" class="model-table glass-table">
+        <el-table-column :label="t('workPage.columns.skipIB')" width="220">
+          <template #default="{ $index }">
+            <el-input
+              v-model="skipRows[$index].skipIB"
+              :placeholder="t('workPage.placeholders.enterSkipIB')"
+            />
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('workPage.columns.aliasName')">
+          <template #default="{ $index }">
+            <el-input
+              v-model="skipRows[$index].aliasName"
+              :placeholder="t('workPage.placeholders.enterAlias')"
+            />
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('workPage.columns.indexCount')" width="180">
+          <template #default="{ $index }">
+            <el-input
+              v-model="skipRows[$index].indexCount"
+              :placeholder="t('workPage.placeholders.enterIndexCount')"
+            />
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('workPage.columns.firstIndex')" width="180">
+          <template #default="{ $index }">
+            <el-input
+              v-model="skipRows[$index].firstIndex"
+              :placeholder="t('workPage.placeholders.enterFirstIndex')"
+            />
+          </template>
+        </el-table-column>
+        <el-table-column width="56" align="center">
+          <template #default="{ $index }">
+            <el-tooltip :content="t('workPage.common.delete')" placement="left">
+              <button
+                type="button"
+                class="config-row-delete-btn"
+                @click.stop="emit('removeSkipRow', $index)"
+              >
+                <el-icon><Delete /></el-icon>
+              </button>
+            </el-tooltip>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
+
+    <div class="controls-row">
+      <el-button type="primary" plain @click="emit('generateIBSkip')">
+        {{ t('workPage.actions.generateIBSkip') }}
+      </el-button>
+    </div>
+  </section>
+
+  <section class="inner-panel">
+    <div class="table-row">
+      <el-table :data="vsRows" border size="small" class="model-table glass-table">
+        <el-table-column :label="t('workPage.columns.enabled')" width="80" align="center">
+          <template #default="{ $index }">
+            <el-checkbox v-model="vsRows[$index].enabled" />
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('workPage.columns.vsHash')">
+          <template #default="{ $index }">
+            <el-input
+              v-model="vsRows[$index].hash"
+              :placeholder="t('workPage.placeholders.enterVSHash')"
+            />
+          </template>
+        </el-table-column>
+        <el-table-column width="56" align="center">
+          <template #default="{ $index }">
+            <el-tooltip :content="t('workPage.common.delete')" placement="left">
+              <button
+                type="button"
+                class="config-row-delete-btn"
+                @click.stop="emit('removeVSCheckRow', $index)"
+              >
+                <el-icon><Delete /></el-icon>
+              </button>
+            </el-tooltip>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
+
+    <div class="controls-row">
+      <el-button type="primary" plain @click="emit('updateVSCheck')">
+        {{ t('workPage.actions.updateVSCheckList') }}
+      </el-button>
+      <el-button type="primary" @click="emit('generateVSCheck')">
+        {{ t('workPage.actions.generateVSCheck') }}
+      </el-button>
+    </div>
+  </section>
+</template>
+
+<style scoped>
+.controls-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.table-row {
+  margin-top: 16px;
+}
+
+.config-row-delete-btn {
+  width: 26px;
+  height: 26px;
+  border: 1px solid rgba(255, 90, 90, 0.18);
+  border-radius: 6px;
+  background: rgba(255, 70, 70, 0.055);
+  color: rgba(255, 145, 145, 0.78);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.config-row-delete-btn:hover {
+  border-color: rgba(255, 105, 105, 0.42);
+  background: rgba(255, 75, 75, 0.14);
+  color: rgba(255, 215, 215, 0.96);
+  box-shadow: 0 0 14px rgba(255, 70, 70, 0.16);
+}
+
+.config-row-delete-btn:active {
+  transform: scale(0.94);
+}
+
+.inner-panel {
+  background: rgba(var(--theme-surface-tint-rgb), 0.022);
+  border: 1px solid rgba(var(--theme-surface-tint-rgb), 0.10);
+  border-radius: 8px;
+  padding: 14px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+  transition: all 0.25s ease;
+  position: relative;
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
+.inner-panel::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(var(--theme-surface-tint-rgb), 0.16), transparent);
+  pointer-events: none;
+  border-radius: 8px 8px 0 0;
+}
+</style>

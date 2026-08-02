@@ -1,0 +1,79 @@
+/* ═══════════════════════════════════════════════
+   SSMT4 — Glass el-table Overrides
+   ═══════════════════════════════════════════════ */
+
+.glass-table {
+  /* Element Plus CSS variables — force full transparency */
+  --el-table-bg-color: transparent;
+  --el-table-tr-bg-color: transparent;
+  --el-table-header-bg-color: transparent;
+  --el-table-border-color: rgba(255, 255, 255, 0.08);
+  --el-table-row-hover-bg-color: rgba(var(--crystal-rgb), 0.08);
+
+  /* Glass effect */
+  background: rgba(var(--crystal-rgb), 0.035);
+  backdrop-filter: var(--glass-blur-strong);
+  -webkit-backdrop-filter: var(--glass-blur-strong);
+  border: none;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* Kill opaque internal wrappers — everything must be see-through */
+.glass-table .el-table__inner-wrapper,
+.glass-table .el-table__body-wrapper,
+.glass-table .el-table__header-wrapper,
+.glass-table .el-table__footer-wrapper,
+.glass-table .el-table__fixed-body-wrapper,
+.glass-table .el-table__fixed-header-wrapper,
+.glass-table .el-table__body,
+.glass-table .el-table__body tr,
+.glass-table .el-table__body tr.el-table__row,
+.glass-table .el-table__empty-block,
+.glass-table .el-table__placeholder,
+.glass-table .el-table__append-wrapper,
+.glass-table .el-table__column-resize-proxy,
+.glass-table .el-table__gutter,
+.glass-table .el-scrollbar__view {
+  background: transparent;
+}
+
+/* ── Cell borders — kill all Element Plus default colored borders ── */
+.glass-table .el-table__cell,
+.glass-table .el-table__cell.el-table__border-left,
+.glass-table .el-table th.el-table__cell,
+.glass-table .el-table td.el-table__cell {
+  border: none;
+}
+
+/* ── Header row bottom hairline ── */
+.glass-table .el-table__header-wrapper tr:first-child th {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* ── Body row bottom hairline ── */
+.glass-table .el-table__body tr:not(:last-child) td {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* ── Column dividers (el-table border prop) ── */
+.glass-table .el-table__cell + .el-table__cell {
+  border-left: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* ── Header cells background ── */
+.glass-table .el-table__header th {
+  background: rgba(var(--crystal-rgb), 0.06);
+  backdrop-filter: var(--glass-blur-medium);
+  -webkit-backdrop-filter: var(--glass-blur-medium);
+}
+
+/* ── Body cells background ── */
+.glass-table .el-table__body td {
+  background: transparent;
+}
+
+/* ── Row hover ── */
+.glass-table .el-table__body tr:hover > td {
+  background: rgba(var(--crystal-rgb), 0.055);
+}

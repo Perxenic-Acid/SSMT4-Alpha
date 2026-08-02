@@ -1,0 +1,15 @@
+/* ═══════════════════════════════════════════════
+   SSMT4 — Centralized Style System
+   Import order matters — theme first, then tokens, then components
+   ═══════════════════════════════════════════════ */
+
+@import './theme.css';
+@import './tokens.css';
+@import './glass-base.css';
+@import './glass-table.css';
+@import './glass-form.css';
+@import './glass-button.css';
+@import './glass-tooltip.css';
+@import './glass-dropdown.css';
+@import './glass-message.css';
+@import './workpage-glass.css';

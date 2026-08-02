@@ -1,0 +1,43 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+.venv/
+
+node_modules
+build
+x64
+dist
+dist-ssr
+*.local
+.env
+.env.*
+
+# 更新签名密钥（永不提交）
+updater-signing.key
+updater-signing.key.pub
+
+# Rust 构建产物
+src-tauri/target
+
+# 发布产物
+publish
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+tmp-install-check-delay
+

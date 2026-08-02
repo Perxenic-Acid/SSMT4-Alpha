@@ -1,0 +1,144 @@
+/* ═══════════════════════════════════════════════
+   SSMT4 — Glass Button Styles
+   ═══════════════════════════════════════════════ */
+
+/* ── Default glass button ── */
+.glass-btn,
+.el-button:not(.is-text) {
+  border-radius: var(--radius-button);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.70);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  transition: all 0.2s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.glass-btn::before,
+.el-button:not(.is-text)::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.12), transparent);
+  pointer-events: none;
+}
+
+.glass-btn:hover,
+.el-button:not(.is-text):hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.20);
+  color: rgba(255, 255, 255, 0.90);
+  transform: translateY(-1px);
+  box-shadow: var(--glass-shadow-btn-hover);
+}
+
+.glass-btn:active,
+.el-button:not(.is-text):active {
+  transform: translateY(0) scale(0.98);
+}
+
+.glass-btn.is-disabled,
+.glass-btn.is-disabled:hover,
+.el-button:not(.is-text).is-disabled,
+.el-button:not(.is-text).is-disabled:hover {
+  opacity: 0.35;
+  cursor: not-allowed;
+  transform: none;
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.10);
+}
+
+.el-button:not(.is-text) .el-icon {
+  margin-right: 6px;
+}
+
+/* ── Primary crystal ── */
+.el-button--primary:not(.is-text) {
+  background: var(--primary-bg);
+  border-color: var(--primary-border);
+  color: var(--text-accent);
+}
+
+.el-button--primary:not(.is-text):hover {
+  background: var(--primary-hover-bg);
+  border-color: var(--primary-hover-border);
+  color: var(--text-accent-hover);
+  box-shadow: var(--glass-shadow-btn-primary);
+}
+
+.el-button--primary:not(.is-text).is-disabled,
+.el-button--primary:not(.is-text).is-disabled:hover {
+  background: var(--primary-bg);
+  border-color: var(--primary-border);
+  color: rgba(255, 255, 255, 0.45);
+}
+
+/* ── Success (green) ── */
+.el-button--success:not(.is-text) {
+  background: var(--green-bg);
+  border-color: var(--green-border);
+  color: var(--green-text);
+}
+
+.el-button--success:not(.is-text):hover {
+  background: var(--green-hover-bg);
+  border-color: var(--green-hover-border);
+  color: rgba(100, 230, 150, 1);
+  box-shadow: 0 4px 16px rgba(70, 200, 120, 0.08);
+}
+
+/* ── Warning (orange) ── */
+.el-button--warning:not(.is-text) {
+  background: var(--orange-bg);
+  border-color: var(--orange-border);
+  color: var(--orange-text);
+}
+
+.el-button--warning:not(.is-text):hover {
+  background: var(--orange-hover-bg);
+  border-color: var(--orange-hover-border);
+  color: rgba(255, 210, 120, 1);
+  box-shadow: 0 4px 16px rgba(230, 162, 60, 0.08);
+}
+
+/* ── Danger (red) ── */
+.el-button--danger:not(.is-text) {
+  background: var(--red-bg);
+  border-color: var(--red-border);
+  color: var(--red-text);
+}
+
+.el-button--danger:not(.is-text):hover {
+  background: var(--red-hover-bg);
+  border-color: var(--red-hover-border);
+  color: rgba(255, 150, 150, 1);
+  box-shadow: 0 4px 16px rgba(220, 80, 80, 0.08);
+}
+
+/* ── Plain variant ── */
+.el-button.is-plain:not(.is-text) {
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+/* ── Full-width button stack (sidebar style) ── */
+.glass-btn-stack .el-button:not(.is-text) {
+  width: 100%;
+  margin-left: 0;
+  justify-content: flex-start;
+  padding: 10px 16px;
+  height: 34px;
+}
+
+.glass-btn-stack .el-dropdown {
+  display: block;
+}
+
+.glass-btn-stack .el-dropdown .el-button:not(.is-text) {
+  width: 100%;
+}

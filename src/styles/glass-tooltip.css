@@ -1,0 +1,49 @@
+/* ═══════════════════════════════════════════════
+   SSMT4 — Tooltip & Popover Overrides
+   ═══════════════════════════════════════════════ */
+
+.el-popper.is-dark[role='tooltip']:not(.el-select__popper):not(.el-dropdown__popper):not(.el-picker__popper):not(.el-cascader__dropdown):not(.el-autocomplete__popper),
+.el-popper.is-light[role='tooltip']:not(.el-select__popper):not(.el-dropdown__popper):not(.el-picker__popper):not(.el-cascader__dropdown):not(.el-autocomplete__popper),
+.el-popover.el-popper {
+  max-width: min(360px, calc(100vw - 28px));
+  padding: 9px 12px;
+  border: var(--t-material-border);
+  border-radius: 14px;
+  background: var(--t-popper-bg, #111827);
+  box-shadow: var(--t-material-shadow);
+  color: rgba(var(--theme-text-primary-rgb), 0.94);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.45;
+  letter-spacing: 0;
+  text-align: center;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.el-popper.is-dark[role='tooltip']:not(.el-select__popper):not(.el-dropdown__popper):not(.el-picker__popper):not(.el-cascader__dropdown):not(.el-autocomplete__popper) .el-popper__arrow::before,
+.el-popper.is-light[role='tooltip']:not(.el-select__popper):not(.el-dropdown__popper):not(.el-picker__popper):not(.el-cascader__dropdown):not(.el-autocomplete__popper) .el-popper__arrow::before,
+.el-popover.el-popper .el-popper__arrow::before {
+  border-color: rgba(var(--theme-surface-tint-rgb), 0.10);
+  background: var(--t-popper-bg, #111827);
+}
+
+.el-popper.is-dark[role='tooltip']:not(.el-select__popper):not(.el-dropdown__popper):not(.el-picker__popper):not(.el-cascader__dropdown):not(.el-autocomplete__popper),
+.el-popper.is-light[role='tooltip']:not(.el-select__popper):not(.el-dropdown__popper):not(.el-picker__popper):not(.el-cascader__dropdown):not(.el-autocomplete__popper) {
+  animation: glass-tooltip-fade-in 120ms ease-out;
+}
+
+.el-popper.game-tooltip {
+  padding: 8px 10px;
+}
+
+@keyframes glass-tooltip-fade-in {
+  from {
+    opacity: 0;
+    filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+  }
+}

@@ -1,0 +1,460 @@
+use crate::common::shader_resource::ShaderResource;
+use std::collections::HashMap;
+use std::fs;
+use std::path::{Path, PathBuf};
+
+pub struct FrameAnalysisSingleLog {
+    //所在的FrameAnalysis文件夹路径
+    pub dir: String,
+
+    /// Full path to the log.txt file (as String)
+    pub log_filename: String,
+
+    /// Convenience: the parsed lines for the primary log file
+    pub lines: Vec<String>,
+
+    /// Map: original dumped file name -> deduped file name.
+    pub filename_deduped_filename_map: HashMap<String, String>,
+}
+
+impl FrameAnalysisSingleLog {
+    /// Create a new FrameAnalysisSingleLog from a FrameAnalysis folder path.
+    /// The function will look for `log.txt` under the given folder, read it
+    /// and parse it into lines. Returns `Err(String)` on IO/parse errors.
+    pub fn new(frame_analysis_folder: &str) -> Result<Self, String> {
+        let folder = Path::new(frame_analysis_folder);
+        let log_path: PathBuf = folder.join("log.txt");
+        let log_path_str = log_path.to_string_lossy().to_string();
+
+        let raw = std::fs::read(&log_path).map_err(|e| e.to_string())?;
+        let content = String::from_utf8_lossy(&raw).into_owned();
+        let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+        let filename_deduped_filename_map = Self::build_filename_deduped_filename_map(&lines);
+
+        Ok(Self {
+            dir: folder.to_string_lossy().to_string(),
+            log_filename: log_path_str,
+            lines,
+            filename_deduped_filename_map,
+        })
+    }
+
+    pub fn empty(frame_analysis_folder: &str) -> Self {
+        let folder = Path::new(frame_analysis_folder);
+        Self {
+            dir: folder.to_string_lossy().to_string(),
+            log_filename: String::new(),
+            lines: Vec::new(),
+            filename_deduped_filename_map: HashMap::new(),
+        }
+    }
+
+    /// Reload the primary `log.txt` from disk and update stored lines.
+    pub fn reload(&mut self) -> Result<(), String> {
+        let path = PathBuf::from(&self.log_filename);
+        let raw = std::fs::read(&path).map_err(|e| e.to_string())?;
+        let content = String::from_utf8_lossy(&raw).into_owned();
+        let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+        let filename_deduped_filename_map = Self::build_filename_deduped_filename_map(&lines);
+        self.lines = lines;
+        self.filename_deduped_filename_map = filename_deduped_filename_map;
+        Ok(())
+    }
+
+    /// 从日志行里提取 `原始文件名 -> 去重后文件名` 映射。
+    fn build_filename_deduped_filename_map(lines: &[String]) -> HashMap<String, String> {
+        let mut out: HashMap<String, String> = HashMap::new();
+        let dumping_texture_2d = "Dumping Texture2D";
+        let dumping_buffer = "Dumping Buffer";
+
+        for log_line in lines {
+            if !log_line.contains("->") {
+                continue;
+            }
+
+            let start = if let Some(idx) = log_line.find(dumping_texture_2d) {
+                idx + dumping_texture_2d.len()
+            } else if let Some(idx) = log_line.find(dumping_buffer) {
+                idx + dumping_buffer.len()
+            } else {
+                continue;
+            };
+
+            let path_splits: Vec<&str> = log_line[start..].split("->").collect();
+            if path_splits.len() < 2 {
+                continue;
+            }
+
+            let original_raw = path_splits[path_splits.len() - 2].trim();
+            let deduped_raw = path_splits[path_splits.len() - 1].trim();
+
+            let original_file_name = {
+                let name = Path::new(original_raw)
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or(original_raw);
+                name.strip_suffix(".lnk").unwrap_or(name).to_string()
+            };
+            let deduped_file_name = {
+                let name = Path::new(deduped_raw)
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or(deduped_raw);
+                name.strip_suffix(".lnk").unwrap_or(name).to_string()
+            };
+
+            out.insert(original_file_name, deduped_file_name);
+        }
+
+        out
+    }
+
+    /// 按原始文件名查询去重后的文件名；不存在则返回空字符串。
+    pub fn get_deduped_filename(&self, frame_analysis_filename: &str) -> String {
+        self.filename_deduped_filename_map
+            .get(frame_analysis_filename)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    //获取deduped文件路径
+    pub fn get_deduped_filepath(&self, frame_analysis_filename: &str) -> String {
+        let deduped_filename = self.get_deduped_filename(frame_analysis_filename);
+        if deduped_filename.is_empty() {
+            return String::new();
+        }
+        let path = Path::new(&self.dir).join("deduped").join(deduped_filename);
+        path.to_string_lossy().to_string()
+    }
+
+    ///通过DrawIB在日志文件中查找最后一个匹配的DrawCall索引，并返回对应的PointList索引。
+    pub fn get_last_pointlist_index_by_hash(&self, draw_ib: &str) -> Option<String> {
+        //此处逻辑不允许AI修改，只能等待人工后续完善
+
+        let drawcall_index_list: Vec<String> = self.get_drawcall_index_list_by_hash(draw_ib, false);
+
+        if drawcall_index_list.is_empty() {
+            return None;
+        }
+
+        let first_trianglelist_index = &drawcall_index_list[0];
+        let trianglelist_index_line_list = self.get_line_list_by_index(first_trianglelist_index);
+
+        let mut vb0_hash = String::new();
+        let mut find_ia_set_vb = false;
+
+        for call_line in trianglelist_index_line_list {
+            if call_line.contains("IASetVertexBuffers") && !find_ia_set_vb {
+                find_ia_set_vb = true;
+                continue;
+            }
+
+            if find_ia_set_vb {
+                if !call_line.starts_with("00") {
+                    let ia_resource = ShaderResource::new(&call_line);
+                    if ia_resource.index == "0" {
+                        vb0_hash = ia_resource.hash.clone();
+                    }
+                } else {
+                    break;
+                }
+            }
+        }
+
+        if vb0_hash.is_empty() {
+            return None;
+        }
+
+        let find_str = format!("hash={}", vb0_hash);
+        let mut current_index = "";
+        let trianglelist_index_number = match first_trianglelist_index.parse::<i32>() {
+            Ok(n) => n,
+            Err(_) => return None,
+        };
+
+        let mut possible_index_list: Vec<String> = Vec::new();
+        for log_line in self.lines.iter() {
+            if log_line.starts_with("00") {
+                current_index = log_line.get(0..6).unwrap_or("");
+            }
+
+            //注意如果是CopyResource之类的操作，这并不是GPU-PreSKinning
+            //例如: e9d29b50 在此处是复制的目标，而不是UnorderedAccessView或者直接设置的VB
+            //000007 CopyResource(pDstResource:0x000001AE9A947120, pSrcResource:0x000001AE9A93BBA0)
+            // Src: resource=0x000001AE9A93BBA0 hash=e4d2fec9
+            // Dst: resource=0x000001AE9A947120 hash=e9d29b50
+            if log_line.contains(&find_str) && !log_line.to_lowercase().contains("dst") {
+                let pointlist_index_number = match current_index.parse::<i32>() {
+                    Ok(n) => n,
+                    Err(_) => continue,
+                };
+
+                if pointlist_index_number < trianglelist_index_number {
+                    if !possible_index_list.contains(&current_index.to_string()) {
+                        possible_index_list.push(current_index.to_string());
+                    }
+                }
+            }
+        }
+
+        //这里返回的是最后一个，所以在部分游戏，例如Naraka手游中无法正确匹配
+        //HSR也出现过这个问题
+        //特殊情况下，第一个匹配到的才是正确的，所以部分情况下用的是第一个
+        if !possible_index_list.is_empty() {
+            return possible_index_list.last().cloned();
+        }
+
+        //如果前面的逻辑没有找到，这里默认返回None
+        None
+    }
+
+    /// 返回匹配给定 `draw_ib` 的 DrawCall 索引列表。
+    /// 若 `only_match_first` 为 true，则找到第一个匹配即返回。
+    /// TODO 这个有时候不好用，建议还是用基于FAData分析的方式
+    pub fn get_drawcall_index_list_by_hash(
+        &self,
+        draw_ib: &str,
+        only_match_first: bool,
+    ) -> Vec<String> {
+        let mut index_list: Vec<String> = Vec::new();
+        let mut current_index = String::new();
+
+        for line in &self.lines {
+            if line.starts_with("00") && line.len() >= 6 {
+                current_index = line[..6].to_string();
+            }
+
+            if line.contains(&format!("hash={}", draw_ib)) {
+                if !index_list.contains(&current_index) {
+                    index_list.push(current_index.clone());
+                }
+                if only_match_first {
+                    break;
+                }
+            }
+        }
+
+        index_list
+    }
+
+    pub fn get_vb_category_hash_map_from_ia_set_vertex_buffer_by_index(
+        &self,
+        index: &str,
+    ) -> HashMap<String, String> {
+        let mut out: HashMap<String, String> = HashMap::new();
+        let line_list = self.get_line_list_by_index(index);
+        let mut find_ia_set_vb = false;
+
+        for call_line in line_list {
+            if call_line.contains("IASetVertexBuffers") && !find_ia_set_vb {
+                find_ia_set_vb = true;
+                continue;
+            }
+
+            if find_ia_set_vb {
+                if call_line.starts_with("00") {
+                    break;
+                }
+
+                let ia_resource = ShaderResource::new(&call_line);
+                if ia_resource.index.is_empty() || ia_resource.hash.is_empty() {
+                    continue;
+                }
+
+                out.insert(format!("vb{}", ia_resource.index), ia_resource.hash);
+            }
+        }
+
+        out
+    }
+
+    pub fn get_compute_shader_slot_hash_map_from_csset_shader_resources_by_index(
+        &self,
+        index: &str,
+    ) -> HashMap<String, String> {
+        let mut out: HashMap<String, String> = HashMap::new();
+        let line_list = self.get_line_list_by_index(index);
+        let mut find_cs_set_sr = false;
+        let command_str = "CSSetShaderResources";
+
+        println!(
+            "Get_ComputeShaderSlotHashMap_FromCSSetShaderResources_ByIndex:{}",
+            index
+        );
+
+        for call_line in line_list {
+            let call_line_trim = call_line.trim();
+
+            if find_cs_set_sr {
+                println!("FindCSSetShaderResources");
+                if !call_line_trim.starts_with("00") {
+                    println!("Processing {}", call_line);
+                    let cs_resource = ShaderResource::new(&call_line);
+                    if cs_resource.index.is_empty() || cs_resource.hash.is_empty() {
+                        continue;
+                    }
+
+                    let slot = format!("cs-t{}", cs_resource.index);
+                    println!("Slot: {} Hash: {}", slot, cs_resource.hash);
+                    out.insert(slot, cs_resource.hash);
+                } else if call_line.contains(command_str) {
+                } else {
+                    println!("Set FindCSSetShaderResources = False");
+                    find_cs_set_sr = false;
+                }
+            } else if call_line.contains(command_str) {
+                println!("Processing: {}", call_line);
+                find_cs_set_sr = true;
+            }
+        }
+
+        out
+    }
+
+    /// 通过 DrawIndex 来获取所有的日志行
+    /// 等价于原 C# `Get_LineList_ByIndex` 方法
+    pub fn get_line_list_by_index(&self, index: &str) -> Vec<String> {
+        let mut index_line_list: Vec<String> = Vec::new();
+
+        let index_number: i32 = match index.parse() {
+            Ok(n) => n,
+            Err(_) => return index_line_list,
+        };
+
+        let mut find_index = false;
+
+        for line in &self.lines {
+            if line.starts_with("00") && !find_index {
+                if let Some(sub) = line.get(0..6) {
+                    if let Ok(current_index_number) = sub.parse::<i32>() {
+                        if current_index_number == index_number {
+                            find_index = true;
+                            index_line_list.push(line.clone());
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            if find_index {
+                if line.starts_with("00") {
+                    if let Some(sub) = line.get(0..6) {
+                        if let Ok(current_index_number) = sub.parse::<i32>() {
+                            if current_index_number > index_number {
+                                break;
+                            } else {
+                                index_line_list.push(line.clone());
+                            }
+                        } else {
+                            index_line_list.push(line.clone());
+                        }
+                    } else {
+                        index_line_list.push(line.clone());
+                    }
+                } else {
+                    index_line_list.push(line.clone());
+                }
+            }
+        }
+
+        index_line_list
+    }
+
+    /// For `DrawIndexedInstancedIndirect` calls found in the log, parse the real
+    /// `StartIndexLocation` and `IndexCount` from the indirect args buffer.
+    ///
+    /// Returns `Some((start_index, index_count))` on success.
+    ///
+    /// The buffer hash and byte offset are extracted from a log line like:
+    /// ```text
+    /// 000245 DrawIndexedInstancedIndirect(pBufferForArgs:0x..., AlignedByteOffsetForArgs:20) hash=96406ccf
+    /// ```
+    ///
+    /// When multiple captures of the same buffer exist (same hash at different
+    /// frame indices), the one with the highest index ≤ `draw_index` is chosen
+    /// because earlier captures may contain stale/zeroed data.
+    pub fn resolve_indirect_draw_params(
+        &self,
+        draw_index: &str,
+    ) -> Option<(u64 /* StartIndexLocation */, u64 /* IndexCount */)> {
+        let search = format!("{} DrawIndexedInstancedIndirect", draw_index);
+        let log_line = self.lines.iter().find(|l| l.contains(&search))?;
+
+        // Extract hash and offset: "...hash=XXXXXXXX" and "AlignedByteOffsetForArgs:NNN"
+        let hash = log_line
+            .split("hash=")
+            .nth(1)?
+            .split(|c: char| !c.is_alphanumeric())
+            .next()?;
+        let offset_str = log_line
+            .split("AlignedByteOffsetForArgs:")
+            .nth(1)?
+            .split(|c: char| !c.is_ascii_digit())
+            .next()?;
+        let byte_offset: usize = offset_str.parse().ok()?;
+
+        // Find the args buffer file captured closest to (but before or at)
+        // the current draw call.
+        let draw_index_number: i32 = draw_index.parse().ok()?;
+        let hash_pattern = format!("={}", hash);
+        let mut candidates: Vec<(i32, PathBuf)> = Vec::new();
+
+        // Scan root folder
+        let root_dir = Path::new(&self.dir);
+        if let Ok(entries) = fs::read_dir(root_dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.contains(&hash_pattern) {
+                    if let Ok(idx) = name[..6].parse::<i32>() {
+                        candidates.push((idx, entry.path()));
+                    }
+                }
+            }
+        }
+        // Also scan deduped folder
+        let deduped_dir = root_dir.join("deduped");
+        if let Ok(entries) = fs::read_dir(&deduped_dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.contains(&hash_pattern) {
+                    if let Ok(idx) = name[..6].parse::<i32>() {
+                        candidates.push((idx, entry.path()));
+                    }
+                }
+            }
+        }
+
+        if candidates.is_empty() {
+            return None;
+        }
+
+        // Pick the candidate with the highest index ≤ draw_index
+        candidates.sort_by_key(|(idx, _)| *idx);
+        let chosen = candidates
+            .iter()
+            .filter(|(idx, _)| *idx <= draw_index_number)
+            .last()
+            .unwrap_or(&candidates[0]);
+
+        let args_bytes = fs::read(&chosen.1).ok()?;
+
+        // DrawIndexedInstancedIndirect args layout (20 bytes per call):
+        //   [0..4)  IndexCountPerInstance  (UINT)
+        //   [4..8)  InstanceCount           (UINT)
+        //   [8..12) StartIndexLocation      (UINT)
+        //   [12..16) BaseVertexLocation     (INT)
+        //   [16..20) StartInstanceLocation  (UINT)
+        if byte_offset + 20 > args_bytes.len() {
+            return None;
+        }
+        let index_count = u64::from(u32::from_le_bytes(
+            args_bytes[byte_offset..byte_offset + 4].try_into().ok()?,
+        ));
+        let start_index = u64::from(u32::from_le_bytes(
+            args_bytes[byte_offset + 8..byte_offset + 12]
+                .try_into()
+                .ok()?,
+        ));
+        Some((start_index, index_count))
+    }
+}

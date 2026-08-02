@@ -1,0 +1,200 @@
+/* ═══════════════════════════════════════════════
+   SSMT4 — Plain Dropdown & Select Popper Overrides
+   ═══════════════════════════════════════════════
+   Simple, functional styling — no glass effects. */
+
+/* ── Popper / dropdown container ── */
+.el-select__popper.el-popper,
+.el-dropdown__popper.el-popper {
+  background: var(--t-popper-bg);
+  border: var(--t-popper-border);
+  border-radius: 8px;
+  box-shadow: var(--t-popper-shadow);
+  box-sizing: border-box;
+  max-width: calc(100vw - 24px);
+  max-height: min(400px, calc(100vh - 80px));
+  overflow: visible;
+  min-width: 0;
+  padding: 4px 0;
+  z-index: 99999 !important; /* Element Plus sets z-index via JS inline style */
+  text-align: left;
+  line-height: normal;
+}
+
+.el-select__popper.el-popper {
+  width: auto;
+  padding: 0;
+}
+
+.el-select__popper .el-select-dropdown {
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: 0;
+  text-align: left;
+}
+
+/* ── Select dropdown items ── */
+.el-select-dropdown__item {
+  background: transparent;
+  color: var(--t-popper-text);
+  font-size: 13px;
+  height: 32px;
+  line-height: 32px;
+  max-width: 100%;
+  padding: 0 28px 0 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-sizing: border-box;
+  text-align: left;
+}
+
+.el-select-dropdown__item.hover,
+.el-select-dropdown__item.is-hovering,
+.el-select-dropdown__item:hover {
+  background: var(--t-popper-bg-hover);
+  color: var(--t-popper-text-hover);
+}
+
+.el-select-dropdown__item.selected,
+.el-select-dropdown__item.is-selected {
+  background: var(--t-popper-bg-selected);
+  color: var(--t-popper-text-hover);
+  font-weight: 600;
+}
+
+.el-select-dropdown__item.is-disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* ── el-dropdown-menu ── */
+.el-dropdown-menu {
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+
+.el-dropdown-menu__item {
+  background: transparent;
+  color: var(--t-popper-text);
+  font-size: 13px;
+  max-width: calc(100vw - 32px);
+  padding: 7px 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-sizing: border-box;
+}
+
+.el-dropdown__popper.el-popper .el-dropdown-menu__item:not(.is-disabled):hover {
+  background: var(--t-popper-bg-hover);
+  color: var(--t-popper-text-hover);
+}
+
+.el-dropdown-menu__item.is-disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.el-dropdown-menu__item--divided {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  margin-top: 4px;
+  padding-top: 8px;
+}
+
+/* ── Filter input inside filterable el-select dropdown ── */
+.el-select-dropdown .el-input__wrapper {
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.10);
+  margin: 4px 8px;
+  box-sizing: border-box;
+  width: auto;
+}
+
+.el-select-dropdown .el-input__inner {
+  color: var(--t-popper-text);
+  font-size: 13px;
+}
+
+.el-select-dropdown .el-input__inner::placeholder {
+  color: rgba(255, 255, 255, 0.30);
+}
+
+/* ── el-select-dropdown list wrap ── */
+.el-select-dropdown__wrap {
+  box-sizing: border-box;
+  max-height: 280px;
+  max-width: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.el-select-dropdown__list {
+  padding: 0;
+}
+
+.el-select-dropdown .el-scrollbar__bar.is-horizontal {
+  display: none;
+}
+
+.el-select-dropdown .el-scrollbar__bar.is-vertical {
+  right: 2px;
+}
+
+.el-select-dropdown .el-scrollbar__thumb {
+  background: rgba(255, 255, 255, 0.20);
+  border-radius: 6px;
+}
+
+.el-select-dropdown .el-scrollbar__thumb:hover {
+  background: rgba(255, 255, 255, 0.35);
+}
+
+/* ── Custom context menu ── */
+.glass-context-menu {
+  position: fixed;
+  z-index: 99999;
+  background: var(--t-popper-bg);
+  border: var(--t-popper-border);
+  border-radius: 8px;
+  padding: 4px;
+  min-width: 150px;
+  box-shadow: var(--t-popper-shadow);
+}
+
+.glass-context-menu .menu-item {
+  padding: 8px 12px;
+  cursor: pointer;
+  color: var(--t-popper-text);
+  font-size: 13px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.glass-context-menu .menu-item:hover {
+  background: var(--t-popper-bg-hover);
+  color: var(--t-popper-text-hover);
+}
+
+/* ── SettingsMenu dropdown (teleported to body) ── */
+.settings-dropdown .settings-dropdown-inner {
+  background: var(--t-material-bg);
+  border: var(--t-material-border);
+  border-radius: 14px;
+  padding: 4px;
+  min-width: 200px;
+  box-shadow: var(--t-material-shadow);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.settings-dropdown .submenu-card {
+  background: var(--t-material-bg);
+  border: var(--t-material-border);
+  border-radius: 14px;
+  box-shadow: var(--t-material-shadow);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  z-index: 99999;
+}
