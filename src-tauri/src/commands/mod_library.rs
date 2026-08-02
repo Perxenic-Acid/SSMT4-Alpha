@@ -194,6 +194,11 @@ fn strip_disabled_prefix(name: &str) -> (String, bool) {
     }
 }
 
+fn is_managed_backup_name(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    lower.starts_with("disabled_") && lower.ends_with("_bak")
+}
+
 fn normalize_group_id(value: &str) -> String {
     normalize_group_path(value)
         .split('/')
@@ -275,6 +280,7 @@ fn is_content_image_file(name_lower: &str) -> bool {
         || name_lower.ends_with(".gif")
         || name_lower.ends_with(".bmp")
         || name_lower.ends_with(".webp")
+        || name_lower.ends_with(".avif")
 }
 
 fn is_standard_group_icon(name_lower: &str) -> bool {
@@ -312,7 +318,7 @@ fn analyze_directory(path: &Path) -> DirAnalysis {
             let sub_path = entry.path();
             if sub_path.is_dir() {
                 let sub_name = sub_path.file_name().unwrap_or_default().to_string_lossy();
-                if !sub_name.starts_with('.') && !sub_name.starts_with('$') {
+                if !sub_name.starts_with('.') && !sub_name.starts_with('$') && !is_managed_backup_name(&sub_name) {
                     has_subdirs = true;
                 }
                 continue;
@@ -387,7 +393,7 @@ fn count_leaf_mods(path: &Path) -> u64 {
                 continue;
             }
             let name = sub_path.file_name().unwrap_or_default().to_string_lossy();
-            if name.starts_with('.') || name.starts_with('$') {
+            if name.starts_with('.') || name.starts_with('$') || is_managed_backup_name(&name) {
                 continue;
             }
             // Quick check: does the subdirectory have INI files?
@@ -399,7 +405,7 @@ fn count_leaf_mods(path: &Path) -> u64 {
                     let p = sub_entry.path();
                     if p.is_dir() {
                         let sn = p.file_name().unwrap_or_default().to_string_lossy();
-                        if !sn.starts_with('.') && !sn.starts_with('$') {
+                        if !sn.starts_with('.') && !sn.starts_with('$') && !is_managed_backup_name(&sn) {
                             has_subdirs = true;
                         }
                     } else if p.is_file() {
@@ -482,7 +488,7 @@ fn scan_group_from_disk(install_dir: &str, group_path: &str) -> Result<ScanResul
             .unwrap_or_default()
             .to_string_lossy()
             .to_string();
-        if dir_name.starts_with('.') || dir_name.starts_with('$') {
+        if dir_name.starts_with('.') || dir_name.starts_with('$') || is_managed_backup_name(&dir_name) {
             skipped_count += 1;
             continue;
         }
@@ -891,7 +897,7 @@ pub async fn mod_library_stream_scan(
                 .unwrap_or_default()
                 .to_string_lossy()
                 .to_string();
-            if dir_name.starts_with('.') || dir_name.starts_with('$') {
+            if dir_name.starts_with('.') || dir_name.starts_with('$') || is_managed_backup_name(&dir_name) {
                 continue;
             }
 

@@ -40,6 +40,7 @@ const allNavItems = ref<NavItem[]>([
     { id: 'work', path: '/work', labelKey: 'titlebar.nav.work', iconType: 'work' },
     { id: 'mark-texture-full', path: '/mark-texture-full', labelKey: 'titlebar.nav.markTexture', iconType: 'mark-texture-full' },
     { id: 'mods', path: '/mods', labelKey: 'titlebar.nav.mods', iconType: 'mods' },
+    { id: 'gamebanana', path: '/gamebanana', labelKey: 'titlebar.nav.gameBanana', iconType: 'gamebanana' },
 ]);
 
 // Current order of IDs
@@ -289,6 +290,8 @@ const togglePin = async () => {
                 <svg v-if="item.id === 'home'" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
                 
                 <svg v-if="item.id === 'mods'" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+
+                <svg v-if="item.id === 'gamebanana'" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4h10l2 4-2 12H7L5 8l2-4z"></path><path d="M9 4l1 4h4l1-4"></path><path d="M9 12h6"></path><path d="M10 16h4"></path></svg>
 
                 <svg v-if="item.id === 'work'" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
                     <rect x="4" y="4" width="16" height="16" rx="3"></rect>

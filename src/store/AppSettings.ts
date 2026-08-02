@@ -17,6 +17,8 @@ const normalizeLocale = (value: unknown): SSMTLocale => {
 }
 
 export type TextureMarkStylePreference = 'Hash' | 'Slot' | 'SharedSlot'
+export type GameBananaNsfwMode = 'show' | 'blur' | 'hide'
+export type GameBananaTranslationProvider = 'openai' | 'compatible' | 'claude' | 'deepseek' | 'gemini' | 'google'
 
 const normalizeTextureMarkStylePreference = (
 	value: unknown
@@ -24,6 +26,16 @@ const normalizeTextureMarkStylePreference = (
 	if (value === 'Slot') return 'Slot'
 	if (value === 'SharedSlot') return 'SharedSlot'
 	return 'Hash'
+}
+
+const normalizeGameBananaNsfwMode = (value: unknown): GameBananaNsfwMode => {
+	return value === 'show' || value === 'hide' || value === 'blur' ? value : 'blur'
+}
+
+const normalizeGameBananaTranslationProvider = (value: unknown): GameBananaTranslationProvider => {
+	return value === 'compatible' || value === 'claude' || value === 'deepseek' || value === 'gemini' || value === 'google'
+		? value
+		: 'openai'
 }
 
 const normalizeSidebarGameOrder = (value: unknown): string[] => {
@@ -145,6 +157,16 @@ export class AppSettings {
 	CurrentWorkSpaceByGame: Record<string, string> = {}
 	sidebarGameOrder: string[] = []
 	convertRgbaChannelTextures: boolean = true
+	modsManagementBlurNsfw: boolean = true
+	gamebananaNsfwMode: GameBananaNsfwMode = 'blur'
+	gamebananaTranslationEnabled: boolean = true
+	gamebananaTranslationRichText: boolean = false
+	gamebananaTranslationProvider: GameBananaTranslationProvider = 'openai'
+	gamebananaTranslationApiUrl: string = 'https://api.openai.com/v1'
+	gamebananaTranslationApiKey: string = ''
+	gamebananaTranslationModel: string = 'gpt-4o-mini'
+	gamebananaTranslationTargetLanguage: string = '简体中文'
+	gamebananaTranslationShortcut: string = 'Ctrl'
 
 	constructor(init?: Partial<AppSettings>) {
 		if (init) {
@@ -186,6 +208,19 @@ export class AppSettings {
 		this.CurrentWorkSpaceByGame = normalizeWorkspaceByGame(init?.CurrentWorkSpaceByGame)
 		this.sidebarGameOrder = normalizeSidebarGameOrder(init?.sidebarGameOrder)
 		this.convertRgbaChannelTextures = init?.convertRgbaChannelTextures ?? this.convertRgbaChannelTextures
+		this.modsManagementBlurNsfw = init?.modsManagementBlurNsfw ?? this.modsManagementBlurNsfw
+		this.gamebananaNsfwMode = normalizeGameBananaNsfwMode(init?.gamebananaNsfwMode)
+		this.gamebananaTranslationEnabled = init?.gamebananaTranslationEnabled ?? this.gamebananaTranslationEnabled
+		this.gamebananaTranslationRichText = init?.gamebananaTranslationRichText ?? this.gamebananaTranslationRichText
+		this.gamebananaTranslationProvider = normalizeGameBananaTranslationProvider(init?.gamebananaTranslationProvider)
+		this.gamebananaTranslationApiUrl = init?.gamebananaTranslationApiUrl ?? this.gamebananaTranslationApiUrl
+		this.gamebananaTranslationApiKey = init?.gamebananaTranslationApiKey ?? this.gamebananaTranslationApiKey
+		this.gamebananaTranslationModel = init?.gamebananaTranslationModel ?? this.gamebananaTranslationModel
+		this.gamebananaTranslationTargetLanguage = init?.gamebananaTranslationTargetLanguage ?? this.gamebananaTranslationTargetLanguage
+		const savedTranslationShortcut = init?.gamebananaTranslationShortcut?.trim()
+		this.gamebananaTranslationShortcut = !savedTranslationShortcut || savedTranslationShortcut.toLowerCase() === 'ctrl+shift+t'
+			? 'Ctrl'
+			: savedTranslationShortcut
 		// VersionNumber is always controlled by current app code version,
 		// not by persisted settings.json.
 		this.VersionNumber = AppSettings.CURRENT_VERSION
@@ -234,6 +269,16 @@ export class AppSettings {
 			CurrentWorkSpaceByGame: this.CurrentWorkSpaceByGame,
 			sidebarGameOrder: this.sidebarGameOrder,
 			convertRgbaChannelTextures: this.convertRgbaChannelTextures,
+			modsManagementBlurNsfw: this.modsManagementBlurNsfw,
+			gamebananaNsfwMode: this.gamebananaNsfwMode,
+			gamebananaTranslationEnabled: this.gamebananaTranslationEnabled,
+			gamebananaTranslationRichText: this.gamebananaTranslationRichText,
+			gamebananaTranslationProvider: this.gamebananaTranslationProvider,
+			gamebananaTranslationApiUrl: this.gamebananaTranslationApiUrl,
+			gamebananaTranslationApiKey: this.gamebananaTranslationApiKey,
+			gamebananaTranslationModel: this.gamebananaTranslationModel,
+			gamebananaTranslationTargetLanguage: this.gamebananaTranslationTargetLanguage,
+			gamebananaTranslationShortcut: this.gamebananaTranslationShortcut,
 		}
 	}
 }

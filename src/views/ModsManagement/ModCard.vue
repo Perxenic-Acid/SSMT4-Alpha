@@ -21,6 +21,7 @@ defineProps<{
   groupDisplayName: string;
   isRootGroup: boolean;
   presetName: string | null;
+  blurNsfwPreview: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -122,7 +123,7 @@ const onModCardMouseLeave = (e: MouseEvent) => {
         </div>
 
         <div class="mod-crystal-wrapper" :class="{ active: mod.enabled }">
-          <div v-if="previewUrl" class="image-wrapper">
+          <div v-if="previewUrl" class="image-wrapper" :class="{ 'is-nsfw-blurred': blurNsfwPreview }">
             <div class="slide-item">
               <el-image
                 :src="previewUrl"
@@ -135,6 +136,7 @@ const onModCardMouseLeave = (e: MouseEvent) => {
                 </template>
               </el-image>
             </div>
+            <div v-if="blurNsfwPreview" class="nsfw-preview-shield">NSFW</div>
           </div>
           <div v-else class="image-placeholder">
             <span class="char-avatar">{{ mod.group === 'Root' ? mod.name.charAt(0) : mod.group.charAt(0) }}</span>
@@ -542,6 +544,31 @@ const onModCardMouseLeave = (e: MouseEvent) => {
   inset: 0;
   background: linear-gradient(to bottom, rgba(var(--theme-surface-tint-rgb), 0.08), rgba(0, 0, 0, 0) 34%, rgba(5, 8, 14, 0.24) 100%);
   z-index: 1;
+  pointer-events: none;
+}
+
+.image-wrapper.is-nsfw-blurred .zoom-image {
+  filter: blur(18px) saturate(0.82);
+  transform: scale(1.12);
+}
+
+.image-wrapper.is-nsfw-blurred::after {
+  background:
+    linear-gradient(to bottom, rgba(8, 10, 15, 0.32), rgba(8, 10, 15, 0.52)),
+    linear-gradient(to bottom, rgba(var(--theme-surface-tint-rgb), 0.08), rgba(0, 0, 0, 0) 34%, rgba(5, 8, 14, 0.28) 100%);
+}
+
+.nsfw-preview-shield {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  color: rgba(255,255,255,0.88);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-shadow: 0 1px 8px rgba(0,0,0,0.8);
   pointer-events: none;
 }
 
