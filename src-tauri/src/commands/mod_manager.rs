@@ -5,15 +5,66 @@ use crate::utils::ssmt_compress_utils::{ArchivePreview, ExtractResult, SSMTCompr
 
 use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Serialize;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::ffi::OsStr;
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, State};
+use tokio::io::AsyncWriteExt;
 
 // Watcher State
 pub struct ModWatcher(pub Mutex<Option<RecommendedWatcher>>);
+
+const GAMEBANANA_DOWNLOAD_CANCELLED: &str = "GameBanana download cancelled";
+
+// A download can be cancelled from a second Tauri command while the first one
+// is awaiting network chunks.  Store only active jobs so a late or stale click
+// cannot cancel a later download that happens to use the same target name.
+static GAMEBANANA_DOWNLOAD_CANCELLATIONS: OnceLock<Mutex<HashMap<String, bool>>> = OnceLock::new();
+
+fn gamebanana_download_key(game_name: &str, target_name: &str) -> String {
+    format!(
+        "{}\u{1f}{}",
+        game_name.trim().to_ascii_lowercase(),
+        target_name.trim().to_ascii_lowercase(),
+    )
+}
+
+fn gamebanana_download_cancellations() -> &'static Mutex<HashMap<String, bool>> {
+    GAMEBANANA_DOWNLOAD_CANCELLATIONS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn gamebanana_download_is_cancelled(key: &str) -> bool {
+    gamebanana_download_cancellations()
+        .lock()
+        .map(|jobs| jobs.get(key).copied().unwrap_or(false))
+        .unwrap_or(false)
+}
+
+struct GamebananaDownloadCancellationGuard {
+    key: String,
+}
+
+impl GamebananaDownloadCancellationGuard {
+    fn begin(game_name: &str, target_name: &str) -> Self {
+        let key = gamebanana_download_key(game_name, target_name);
+        if let Ok(mut jobs) = gamebanana_download_cancellations().lock() {
+            jobs.insert(key.clone(), false);
+        }
+        Self { key }
+    }
+}
+
+impl Drop for GamebananaDownloadCancellationGuard {
+    fn drop(&mut self) {
+        if let Ok(mut jobs) = gamebanana_download_cancellations().lock() {
+            jobs.remove(&self.key);
+        }
+    }
+}
 
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -55,7 +106,8 @@ fn is_content_image_file(name_lower: &str) -> bool {
         || name_lower.ends_with(".png")
         || name_lower.ends_with(".gif")
         || name_lower.ends_with(".bmp")
-        || name_lower.ends_with(".webp"))
+        || name_lower.ends_with(".webp")
+        || name_lower.ends_with(".avif"))
 }
 
 fn is_standard_group_icon(name_lower: &str) -> bool {
@@ -63,6 +115,11 @@ fn is_standard_group_icon(name_lower: &str) -> bool {
         name_lower,
         "folder.jpg" | "folder.png" | "icon.jpg" | "icon.png" | "cover.jpg" | "cover.png"
     )
+}
+
+fn is_ssmt_backup_name(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    lower.starts_with("disabled_") && lower.ends_with("_bak")
 }
 
 fn mods_root(install_dir: &str) -> PathBuf {
@@ -89,7 +146,7 @@ fn is_leaf_mod_dir(path: &Path) -> bool {
             let sub_path = sub.path();
             if sub_path.is_dir() {
                 let sub_name = sub_path.file_name().unwrap_or_default().to_string_lossy();
-                if !sub_name.starts_with('.') && !sub_name.starts_with('$') {
+                if !sub_name.starts_with('.') && !sub_name.starts_with('$') && !is_ssmt_backup_name(&sub_name) {
                     has_subdirs = true;
                 }
             } else if sub_path.is_file() {
@@ -119,7 +176,7 @@ fn count_direct_leaf_mod_dirs(path: &Path) -> u64 {
             }
 
             let sub_name = sub_path.file_name().unwrap_or_default().to_string_lossy();
-            if sub_name.starts_with('.') || sub_name.starts_with('$') {
+            if sub_name.starts_with('.') || sub_name.starts_with('$') || is_ssmt_backup_name(&sub_name) {
                 continue;
             }
 
@@ -143,7 +200,7 @@ fn analyze_directory(path: &Path) -> (Vec<String>, bool, bool, bool, Option<Stri
             let sub_path = entry.path();
             if sub_path.is_dir() {
                 let sub_name = sub_path.file_name().unwrap_or_default().to_string_lossy();
-                if !sub_name.starts_with('.') && !sub_name.starts_with('$') {
+                if !sub_name.starts_with('.') && !sub_name.starts_with('$') && !is_ssmt_backup_name(&sub_name) {
                     has_subdirs = true;
                 }
                 continue;
@@ -238,6 +295,33 @@ fn mod_path_segment_candidates(segment: &str) -> Vec<String> {
     values
 }
 
+fn resolve_physical_install_group_path(mods_dir: &Path, logical_group_path: &Path) -> PathBuf {
+    let mut current = mods_dir.to_path_buf();
+    for segment in logical_group_path.components() {
+        let std::path::Component::Normal(segment) = segment else {
+            continue;
+        };
+        let requested = segment.to_string_lossy().to_string();
+        let existing = mod_path_segment_candidates(&requested)
+            .into_iter()
+            .map(|candidate| current.join(candidate))
+            .find(|candidate| candidate.is_dir());
+        current = existing.unwrap_or_else(|| current.join(requested));
+    }
+    current
+}
+
+fn install_target_exists(mods_dir: &Path, target_group_path: &Path, target_name_path: &Path) -> bool {
+    let target_parent = resolve_physical_install_group_path(mods_dir, target_group_path);
+    let Some(target_name) = target_name_path.file_name().and_then(|value| value.to_str()) else {
+        return false;
+    };
+    mod_path_segment_candidates(target_name)
+        .into_iter()
+        .map(|candidate| target_parent.join(candidate))
+        .any(|candidate| candidate.is_dir())
+}
+
 fn find_mod_dir_by_clean_tail(root: &Path, tail: &str) -> Option<PathBuf> {
     let wanted = strip_disabled_prefix(tail).0.to_lowercase();
     if wanted.is_empty() {
@@ -257,7 +341,7 @@ fn find_mod_dir_by_clean_tail(root: &Path, tail: &str) -> Option<PathBuf> {
             }
 
             let name = entry.file_name().to_string_lossy().to_string();
-            if name.starts_with('.') || name.starts_with('$') {
+            if name.starts_with('.') || name.starts_with('$') || is_ssmt_backup_name(&name) {
                 continue;
             }
 
@@ -436,7 +520,7 @@ pub async fn scan_directory(
             .unwrap_or_default()
             .to_string_lossy()
             .to_string();
-        if dir_name.starts_with('.') || dir_name.starts_with('$') {
+        if dir_name.starts_with('.') || dir_name.starts_with('$') || is_ssmt_backup_name(&dir_name) {
             continue;
         }
 
@@ -613,6 +697,85 @@ pub struct InstallProgressPayload {
 
 fn emit_install_progress(app: &AppHandle, payload: InstallProgressPayload) {
     let _ = app.emit("mod-install-progress", payload);
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct GamebananaInstallProgressPayload {
+    pub game_name: String,
+    pub mod_name: String,
+    pub current: u64,
+    pub total: u64,
+}
+
+fn emit_gamebanana_install_progress(app: &AppHandle, payload: GamebananaInstallProgressPayload) {
+    let _ = app.emit("gamebanana-install-progress", payload);
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ModArchiveFormat {
+    Zip,
+    SevenZip,
+    Rar,
+    SystemTar,
+}
+
+fn detect_mod_archive_format(path: &Path) -> Result<ModArchiveFormat, String> {
+    let mut file = fs::File::open(path)
+        .map_err(|error| format!("Failed to open archive {}: {}", path.to_string_lossy(), error))?;
+    let mut header = [0u8; 8];
+    let read = file
+        .read(&mut header)
+        .map_err(|error| format!("Failed to read archive header {}: {}", path.to_string_lossy(), error))?;
+    let header = &header[..read];
+
+    if header.starts_with(b"PK\x03\x04")
+        || header.starts_with(b"PK\x05\x06")
+        || header.starts_with(b"PK\x07\x08")
+    {
+        return Ok(ModArchiveFormat::Zip);
+    }
+    if header.starts_with(&[0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C]) {
+        return Ok(ModArchiveFormat::SevenZip);
+    }
+    if header.starts_with(b"Rar!\x1A\x07\x00") || header.starts_with(b"Rar!\x1A\x07\x01\x00") {
+        return Ok(ModArchiveFormat::Rar);
+    }
+
+    match path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "zip" => Ok(ModArchiveFormat::Zip),
+        "7z" => Ok(ModArchiveFormat::SevenZip),
+        "rar" => Ok(ModArchiveFormat::Rar),
+        // tar.exe is available on supported Windows releases and covers the
+        // less common tar-based uploads that GameBanana authors sometimes use.
+        "tar" | "gz" | "bz2" | "xz" | "tgz" | "tbz" | "tbz2" | "txz" => Ok(ModArchiveFormat::SystemTar),
+        _ => Err("Unsupported archive format. Expected ZIP, 7z, RAR, or a tar-compatible archive.".to_string()),
+    }
+}
+
+fn extract_with_system_tar(path: &Path, staging_dir: &Path) -> Result<ExtractResult, String> {
+    let output = std::process::Command::new("tar")
+        .arg("-xf")
+        .arg(path)
+        .arg("-C")
+        .arg(staging_dir)
+        .output()
+        .map_err(|error| format!("Failed to start tar fallback for {}: {}", path.to_string_lossy(), error))?;
+    if !output.status.success() {
+        return Err(format!(
+            "tar fallback failed for {}: {}",
+            path.to_string_lossy(),
+            String::from_utf8_lossy(&output.stderr).trim(),
+        ));
+    }
+    let total = count_files_recursive(staging_dir)?;
+    Ok(ExtractResult { processed: total, total })
 }
 
 fn count_files_recursive(dir: &Path) -> Result<u64, String> {
@@ -890,6 +1053,207 @@ fn remove_install_staging_dir(staging_dir: &Path) {
     }
 }
 
+fn backup_existing_install_dir(dest_dir: &Path) -> Result<PathBuf, String> {
+    let parent = dest_dir.parent().ok_or_else(|| "Install destination has no parent directory".to_string())?;
+    let original_name = dest_dir
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| "Install destination has an invalid directory name".to_string())?;
+    let millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0);
+
+    for attempt in 0..100 {
+        // `_bak` identifies an SSMT-managed, recoverable backup; `DISABLED_`
+        // is the separate 3Dmigoto-facing marker that keeps its INI files from
+        // being loaded without modifying d3dx.ini.
+        let suffix = if attempt == 0 { String::new() } else { format!("-{}", attempt) };
+        let backup = parent.join(format!("DISABLED_{}-{}{}_bak", original_name, millis, suffix));
+        if backup.exists() {
+            continue;
+        }
+        fs::rename(dest_dir, &backup).map_err(|error| {
+            format!(
+                "Failed to move existing Mod into the 3Dmigoto-safe backup {}: {}",
+                backup.to_string_lossy(),
+                error,
+            )
+        })?;
+        return Ok(backup);
+    }
+
+    Err("Failed to allocate a unique backup directory name".to_string())
+}
+
+fn is_allowed_gamebanana_preview_url(url: &reqwest::Url) -> bool {
+    matches!(url.scheme(), "http" | "https")
+        && url
+            .host_str()
+            .map(|host| {
+                let host = host.to_ascii_lowercase();
+                host == "gamebanana.com" || host.ends_with(".gamebanana.com")
+            })
+            .unwrap_or(false)
+}
+
+fn gamebanana_preview_extension(path: &str, content_type: Option<&str>) -> String {
+    let by_path = Path::new(path)
+        .extension()
+        .and_then(OsStr::to_str)
+        .map(|extension| extension.to_ascii_lowercase());
+    if let Some(extension) = by_path.as_deref() {
+        if matches!(extension, "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "avif") {
+            return if extension == "jpeg" {
+                "jpg".to_string()
+            } else {
+                extension.to_string()
+            };
+        }
+    }
+
+    let content_type = content_type.unwrap_or_default().to_ascii_lowercase();
+    if content_type.contains("png") {
+        return "png".to_string();
+    }
+    if content_type.contains("webp") {
+        return "webp".to_string();
+    }
+    if content_type.contains("gif") {
+        return "gif".to_string();
+    }
+    if content_type.contains("bmp") {
+        return "bmp".to_string();
+    }
+    if content_type.contains("avif") {
+        return "avif".to_string();
+    }
+    "jpg".to_string()
+}
+
+fn next_gamebanana_preview_path(mod_dir: &Path, ordinal: usize, extension: &str) -> PathBuf {
+    let stem = format!("00_preview_gamebanana_{ordinal:03}");
+    let initial = mod_dir.join(format!("{stem}.{extension}"));
+    if !initial.exists() {
+        return initial;
+    }
+
+    for attempt in 2..=1000 {
+        let candidate = mod_dir.join(format!("{stem}-{attempt}.{extension}"));
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+
+    mod_dir.join(format!("{stem}-{}.{}", SystemTime::now().duration_since(UNIX_EPOCH).map(|duration| duration.as_millis()).unwrap_or(0), extension))
+}
+
+async fn save_gamebanana_previews(mod_dir: PathBuf, preview_urls: Vec<String>) -> Result<(usize, Vec<String>), String> {
+    if preview_urls.is_empty() {
+        return Ok((0, Vec::new()));
+    }
+
+    let client = reqwest::Client::builder()
+        .user_agent("SSMT4 GameBanana preview downloader")
+        .redirect(reqwest::redirect::Policy::limited(5))
+        .build()
+        .map_err(|error| format!("Failed to configure GameBanana preview downloader: {error}"))?;
+    let mut seen = HashSet::new();
+    let mut saved_count = 0usize;
+    let mut warnings = Vec::new();
+
+    for raw_url in preview_urls {
+        let preview_url = raw_url.trim();
+        if preview_url.is_empty() || !seen.insert(preview_url.to_ascii_lowercase()) {
+            continue;
+        }
+
+        let parsed_url = match reqwest::Url::parse(preview_url) {
+            Ok(url) if is_allowed_gamebanana_preview_url(&url) => url,
+            Ok(url) => {
+                warnings.push(format!("Skipped preview from an unsupported host: {url}"));
+                continue;
+            }
+            Err(error) => {
+                warnings.push(format!("Skipped invalid preview URL: {error}"));
+                continue;
+            }
+        };
+
+        let response = match client.get(parsed_url.clone()).send().await {
+            Ok(response) if response.status().is_success() => response,
+            Ok(response) => {
+                warnings.push(format!("Preview download returned HTTP {}", response.status()));
+                continue;
+            }
+            Err(error) => {
+                warnings.push(format!("Preview download failed: {error}"));
+                continue;
+            }
+        };
+
+        let content_type = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string);
+        let bytes = match response.bytes().await {
+            Ok(bytes) if !bytes.is_empty() => bytes,
+            Ok(_) => {
+                warnings.push("Preview download returned an empty image".to_string());
+                continue;
+            }
+            Err(error) => {
+                warnings.push(format!("Failed to read preview image: {error}"));
+                continue;
+            }
+        };
+
+        let extension = gamebanana_preview_extension(parsed_url.path(), content_type.as_deref());
+        let target = next_gamebanana_preview_path(&mod_dir, saved_count + 1, &extension);
+        if let Err(error) = tokio::fs::write(&target, bytes).await {
+            warnings.push(format!("Failed to save preview {}: {}", target.display(), error));
+            continue;
+        }
+        saved_count += 1;
+    }
+
+    Ok((saved_count, warnings))
+}
+
+fn spawn_gamebanana_preview_fetch(mod_dir: PathBuf, preview_urls: Vec<String>) {
+    if preview_urls.is_empty() {
+        return;
+    }
+
+    tauri::async_runtime::spawn(async move {
+        match save_gamebanana_previews(mod_dir.clone(), preview_urls).await {
+            Ok((saved_count, warnings)) if warnings.is_empty() => {
+                println!(
+                    "[GameBanana] Saved {} preview image(s) for {}",
+                    saved_count,
+                    mod_dir.display()
+                );
+            }
+            Ok((saved_count, warnings)) => {
+                eprintln!(
+                    "[GameBanana] Saved {} preview image(s) for {} with warnings: {}",
+                    saved_count,
+                    mod_dir.display(),
+                    warnings.join(" | ")
+                );
+            }
+            Err(error) => {
+                eprintln!(
+                    "[GameBanana] Failed to save preview images for {}: {}",
+                    mod_dir.display(),
+                    error
+                );
+            }
+        }
+    });
+}
+
 #[cfg(test)]
 mod install_path_tests {
     use super::normalize_install_relative_path;
@@ -923,6 +1287,25 @@ pub async fn preview_mod_archive(path: String) -> Result<ArchivePreview, String>
 }
 
 #[tauri::command]
+pub async fn mod_install_target_exists(
+    install_dir: String,
+    target_name: String,
+    target_group: String,
+) -> Result<bool, String> {
+    let target_name_path = normalize_install_relative_path(&target_name, "Mod name", false, false)?;
+    let target_group_path = if target_group.trim().eq_ignore_ascii_case("Root") || target_group.trim().is_empty() {
+        PathBuf::new()
+    } else {
+        normalize_install_relative_path(target_group.trim(), "Target group", true, false)?
+    };
+    Ok(install_target_exists(
+        &mods_root(&install_dir),
+        &target_group_path,
+        &target_name_path,
+    ))
+}
+
+#[tauri::command]
 pub async fn install_mod_archive(
     app: AppHandle,
     game_name: String,
@@ -931,6 +1314,7 @@ pub async fn install_mod_archive(
     target_name: String,  // User defined name for the folder
     target_group: String, // E.g. "Ayaka", or "Root"
     password: Option<String>,
+    backup_existing: Option<bool>,
 ) -> Result<(), String> {
     let mods_dir = mods_root(&install_dir);
     let target_name_path = normalize_install_relative_path(&target_name, "Mod name", false, false)?;
@@ -941,10 +1325,10 @@ pub async fn install_mod_archive(
         } else {
             normalize_install_relative_path(target_group_trimmed, "Target group", true, false)?
         };
-    let target_parent = mods_dir.join(target_group_path);
+    let target_parent = resolve_physical_install_group_path(&mods_dir, &target_group_path);
     let dest_dir = target_parent.join(&target_name_path);
 
-    if dest_dir.exists() {
+    if dest_dir.exists() && !backup_existing.unwrap_or(false) {
         return Err("该分类下已存在同名 Mod，请更改名称后重试".to_string());
     }
 
@@ -956,15 +1340,11 @@ pub async fn install_mod_archive(
         ));
     }
 
-    let ext = path_buf
-        .extension()
-        .unwrap_or_default()
-        .to_string_lossy()
-        .to_lowercase();
-
-    if !path_buf.is_dir() && ext != "zip" && ext != "7z" && ext != "rar" {
-        return Err("Unsupported format".to_string());
-    }
+    let archive_format = if path_buf.is_dir() {
+        None
+    } else {
+        Some(detect_mod_archive_format(&path_buf)?)
+    };
 
     emit_install_progress(
         &app,
@@ -998,7 +1378,7 @@ pub async fn install_mod_archive(
                     );
                 },
             )
-        } else if ext == "zip" {
+        } else if archive_format == Some(ModArchiveFormat::Zip) {
             SSMTCompressUtils::extract_zip_archive(&path_buf, &staging_dir, |current, total| {
                 emit_install_progress(
                     &app,
@@ -1011,7 +1391,7 @@ pub async fn install_mod_archive(
                     },
                 );
             })
-        } else if ext == "7z" {
+        } else if archive_format == Some(ModArchiveFormat::SevenZip) {
             SSMTCompressUtils::extract_7z_archive(&path_buf, &staging_dir, |current, total| {
                 emit_install_progress(
                     &app,
@@ -1024,7 +1404,7 @@ pub async fn install_mod_archive(
                     },
                 );
             })
-        } else if ext == "rar" {
+        } else if archive_format == Some(ModArchiveFormat::Rar) {
             SSMTCompressUtils::extract_rar_archive_with_password(
                 &path_buf,
                 &staging_dir,
@@ -1042,8 +1422,31 @@ pub async fn install_mod_archive(
                     );
                 },
             )
+        } else if archive_format == Some(ModArchiveFormat::SystemTar) {
+            emit_install_progress(
+                &app,
+                InstallProgressPayload {
+                    game_name: game_name.clone(),
+                    mod_name: target_name.clone(),
+                    stage: "extracting".to_string(),
+                    current: 0,
+                    total: 1,
+                },
+            );
+            let result = extract_with_system_tar(&path_buf, &staging_dir)?;
+            emit_install_progress(
+                &app,
+                InstallProgressPayload {
+                    game_name: game_name.clone(),
+                    mod_name: target_name.clone(),
+                    stage: "extracting".to_string(),
+                    current: result.total.max(1),
+                    total: result.total.max(1),
+                },
+            );
+            Ok(result)
         } else {
-            Err("Unsupported format".to_string())
+            Err("Unsupported archive format".to_string())
         }
     })();
 
@@ -1055,11 +1458,6 @@ pub async fn install_mod_archive(
         }
     };
 
-    if dest_dir.exists() {
-        remove_install_staging_dir(&staging_dir);
-        return Err("该分类下已存在同名 Mod，请更改名称后重试".to_string());
-    }
-
     fs::create_dir_all(&target_parent).map_err(|e| {
         remove_install_staging_dir(&staging_dir);
         format!(
@@ -1069,8 +1467,29 @@ pub async fn install_mod_archive(
         )
     })?;
 
+    let backup_path = if dest_dir.exists() {
+        match backup_existing.unwrap_or(false) {
+            true => match backup_existing_install_dir(&dest_dir) {
+                Ok(path) => Some(path),
+                Err(error) => {
+                    remove_install_staging_dir(&staging_dir);
+                    return Err(error);
+                }
+            },
+            false => {
+                remove_install_staging_dir(&staging_dir);
+                return Err("该分类下已存在同名 Mod，请更改名称后重试".to_string());
+            }
+        }
+    } else {
+        None
+    };
+
     fs::rename(&staging_dir, &dest_dir).map_err(|e| {
         remove_install_staging_dir(&staging_dir);
+        if let Some(backup) = backup_path.as_ref() {
+            let _ = fs::rename(backup, &dest_dir);
+        }
         format!(
             "Failed to finalize install {} -> {}: {}",
             staging_dir.to_string_lossy(),
@@ -1097,6 +1516,192 @@ pub async fn install_mod_archive(
     );
 
     Ok(())
+}
+
+#[tauri::command]
+pub async fn gamebanana_download_and_install_mod(
+    app: AppHandle,
+    game_name: String,
+    install_dir: String,
+    download_url: String,
+    archive_name: String,
+    target_name: String,
+    target_group: String,
+    password: Option<String>,
+    preview_urls: Option<Vec<String>>,
+) -> Result<(), String> {
+    let cancellation_guard = GamebananaDownloadCancellationGuard::begin(&game_name, &target_name);
+    let cancellation_key = cancellation_guard.key.clone();
+    let parsed_url = reqwest::Url::parse(download_url.trim())
+        .map_err(|error| format!("Invalid GameBanana download URL: {}", error))?;
+    if !matches!(parsed_url.scheme(), "http" | "https") {
+        return Err("GameBanana download URL must use HTTP or HTTPS".to_string());
+    }
+
+    let download_dir = std::env::temp_dir().join("ssmt4-gamebanana-downloads");
+    tokio::fs::create_dir_all(&download_dir)
+        .await
+        .map_err(|error| format!("Failed to create GameBanana download cache: {}", error))?;
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0);
+    let extension = Path::new(archive_name.trim())
+        .extension()
+        .and_then(|value| value.to_str())
+        .filter(|value| value.len() <= 12 && value.chars().all(|value| value.is_ascii_alphanumeric()))
+        .map(|value| format!(".{}", value))
+        .unwrap_or_else(|| ".download".to_string());
+    let archive_path = download_dir.join(format!(
+        "gamebanana-{}-{}-{}{}",
+        std::process::id(),
+        stamp,
+        target_name.chars().filter(|value| value.is_ascii_alphanumeric()).take(20).collect::<String>(),
+        extension,
+    ));
+
+    emit_gamebanana_install_progress(
+        &app,
+        GamebananaInstallProgressPayload {
+            game_name: game_name.clone(),
+            mod_name: target_name.clone(),
+            current: 0,
+            total: 0,
+        },
+    );
+
+    let download_result = async {
+        if gamebanana_download_is_cancelled(&cancellation_key) {
+            return Err(GAMEBANANA_DOWNLOAD_CANCELLED.to_string());
+        }
+        let client = reqwest::Client::builder()
+            .user_agent("SSMT4 GameBanana installer")
+            .redirect(reqwest::redirect::Policy::limited(10))
+            .build()
+            .map_err(|error| format!("Failed to configure GameBanana downloader: {}", error))?;
+        if gamebanana_download_is_cancelled(&cancellation_key) {
+            return Err(GAMEBANANA_DOWNLOAD_CANCELLED.to_string());
+        }
+        let mut response = client
+            .get(parsed_url)
+            .send()
+            .await
+            .map_err(|error| format!("GameBanana download request failed: {}", error))?;
+        if !response.status().is_success() {
+            return Err(format!("GameBanana download returned HTTP {}", response.status()));
+        }
+
+        let total = response.content_length().unwrap_or(0);
+        let mut output = tokio::fs::File::create(&archive_path)
+            .await
+            .map_err(|error| format!("Failed to create download file: {}", error))?;
+        let mut downloaded = 0u64;
+        let mut last_progress_at = Instant::now();
+        loop {
+            if gamebanana_download_is_cancelled(&cancellation_key) {
+                return Err(GAMEBANANA_DOWNLOAD_CANCELLED.to_string());
+            }
+            let Some(chunk) = response
+                .chunk()
+                .await
+                .map_err(|error| format!("Failed to read GameBanana download: {}", error))?
+            else {
+                break;
+            };
+            if gamebanana_download_is_cancelled(&cancellation_key) {
+                return Err(GAMEBANANA_DOWNLOAD_CANCELLED.to_string());
+            }
+            output
+                .write_all(&chunk)
+                .await
+                .map_err(|error| format!("Failed to save GameBanana download: {}", error))?;
+            downloaded = downloaded.saturating_add(chunk.len() as u64);
+            if last_progress_at.elapsed() >= Duration::from_millis(80) {
+                emit_gamebanana_install_progress(
+                    &app,
+                    GamebananaInstallProgressPayload {
+                        game_name: game_name.clone(),
+                        mod_name: target_name.clone(),
+                        current: downloaded,
+                        total,
+                    },
+                );
+                last_progress_at = Instant::now();
+            }
+        }
+        if gamebanana_download_is_cancelled(&cancellation_key) {
+            return Err(GAMEBANANA_DOWNLOAD_CANCELLED.to_string());
+        }
+        output
+            .flush()
+            .await
+            .map_err(|error| format!("Failed to finalize GameBanana download: {}", error))?;
+        emit_gamebanana_install_progress(
+            &app,
+            GamebananaInstallProgressPayload {
+                game_name: game_name.clone(),
+                mod_name: target_name.clone(),
+                current: downloaded,
+                total: total.max(downloaded),
+            },
+        );
+        Ok::<(), String>(())
+    }
+    .await;
+
+    if let Err(error) = download_result {
+        let _ = tokio::fs::remove_file(&archive_path).await;
+        return Err(error);
+    }
+
+    if gamebanana_download_is_cancelled(&cancellation_key) {
+        let _ = tokio::fs::remove_file(&archive_path).await;
+        return Err(GAMEBANANA_DOWNLOAD_CANCELLED.to_string());
+    }
+
+    let preview_target = {
+        let mods_dir = mods_root(&install_dir);
+        let target_name_path = normalize_install_relative_path(&target_name, "Mod name", false, false)?;
+        let target_group_path = if target_group.trim().eq_ignore_ascii_case("Root") || target_group.trim().is_empty() {
+            PathBuf::new()
+        } else {
+            normalize_install_relative_path(target_group.trim(), "Target group", true, false)?
+        };
+        resolve_physical_install_group_path(&mods_dir, &target_group_path).join(target_name_path)
+    };
+
+    let install_result = install_mod_archive(
+        app,
+        game_name,
+        install_dir,
+        archive_path.to_string_lossy().to_string(),
+        target_name,
+        target_group,
+        password,
+        Some(true),
+    )
+    .await;
+    let _ = tokio::fs::remove_file(&archive_path).await;
+    if install_result.is_ok() {
+        spawn_gamebanana_preview_fetch(preview_target, preview_urls.unwrap_or_default());
+    }
+    install_result
+}
+
+#[tauri::command]
+pub fn cancel_gamebanana_download_and_install_mod(
+    game_name: String,
+    target_name: String,
+) -> Result<bool, String> {
+    let key = gamebanana_download_key(&game_name, &target_name);
+    let mut jobs = gamebanana_download_cancellations()
+        .lock()
+        .map_err(|_| "GameBanana download cancellation state is unavailable".to_string())?;
+    let Some(cancelled) = jobs.get_mut(&key) else {
+        return Ok(false);
+    };
+    *cancelled = true;
+    Ok(true)
 }
 
 #[tauri::command]

@@ -27,6 +27,7 @@ import {
 	type TextureMarkNameMemoryItem,
 } from '../../common/TextureMarkNameMemory';
 import { readDrawIBConfigFromWorkspace } from '../../common/DrawIBConfig';
+import SubmeshPostProcessPreview from './SubmeshPostProcessPreview.vue';
 import {
 	applyTextureMarkForCurrentSubMesh,
 	clearCurrentSubMeshTextureMarkup,
@@ -63,6 +64,13 @@ type TextureItem = {
 	channelPreviews: TextureChannelPreview[];
 	markName: string;
 	markStyle: MarkStyle;
+};
+
+type PreviewTextureOption = {
+	id: string;
+	label: string;
+	url: string;
+	markName: string;
 };
 
 type SubMeshMarkedTextureSummary = {
@@ -561,6 +569,37 @@ const subMeshDrawerItems = computed<SubMeshDrawerItem[]>(() => {
 			markedTextures,
 		};
 	});
+});
+
+const previewTextureOptions = computed<PreviewTextureOption[]>(() => {
+	const options = new Map<string, PreviewTextureOption>();
+	const appliedOrPendingMarks = subMeshMarkedTextureMap.value[selectedSubMesh.value] ?? [];
+
+	for (const mark of appliedOrPendingMarks) {
+		if (!mark.preview) {
+			continue;
+		}
+		options.set(`mark:${mark.id}`, {
+			id: `mark:${mark.id}`,
+			label: `${mark.markName || t('markTexture.preview.unmarkedTexture')} · ${mark.textureName}`,
+			url: mark.preview,
+			markName: mark.markName,
+		});
+	}
+
+	for (const item of textureList.value) {
+		if (!item.preview) {
+			continue;
+		}
+		options.set(`current:${item.id}`, {
+			id: `current:${item.id}`,
+			label: `${item.markName || t('markTexture.preview.unmarkedTexture')} · ${item.name}`,
+			url: item.preview,
+			markName: item.markName,
+		});
+	}
+
+	return Array.from(options.values());
 });
 
 const getCurrentGameFolderName = (): string => {
@@ -2276,63 +2315,73 @@ watch(
 		<div class="mark-layout">
 			<section class="left-card">
 				<div class="left-workspace">
-					<nav class="submesh-drawer-list" aria-label="Submesh">
-						<section
-							v-for="subMesh in subMeshDrawerItems"
-							:key="subMesh.value"
-							class="submesh-drawer-item"
-							:class="{ 'is-selected': subMesh.isSelected }"
-						>
-							<div class="submesh-drawer-row">
-								<button
-									class="submesh-select-btn"
-									type="button"
-									:title="subMesh.label"
-									@click="selectSubMeshFromDrawer(subMesh.value)"
-								>
-									<span class="submesh-label">{{ subMesh.label }}</span>
-									<span class="submesh-count">{{ subMesh.markCount }}</span>
-								</button>
-							</div>
-
-							<div class="submesh-marked-list">
-								<button
-									v-for="summary in subMesh.markedTextures"
-									:key="summary.id"
-									class="submesh-marked-texture"
-									type="button"
-									:title="summary.textureName"
-									@click="selectMarkedTextureSummary(subMesh.value, summary)"
-								>
-									<span class="submesh-mark-preview">
-										<img
-											:key="summary.previewKey"
-											:src="summary.preview"
-											:alt="summary.markName"
-											:style="{ opacity: summary.preview ? 1 : 0 }"
-											@load="handlePreviewImageLoad"
-											@error="handlePreviewImageError"
-										/>
-									</span>
-									<span class="submesh-mark-meta">
-										<span class="submesh-mark-meta-row">
-											<span class="submesh-mark-name">{{ summary.markName }}</span>
-											<span
-												class="submesh-mark-status"
-												:class="summary.status === 'applied' ? 'is-applied' : 'is-pending'"
-											>
-												{{ summary.status === 'applied' ? '已应用' : '未应用' }}
-											</span>
-										</span>
-										<span class="submesh-mark-style">{{ summary.markStyle }}</span>
-									</span>
-								</button>
-								<div v-if="subMesh.markedTextures.length === 0" class="submesh-empty-mark">
-									-
+					<div class="submesh-side-column">
+						<nav class="submesh-drawer-list" aria-label="Submesh">
+							<section
+								v-for="subMesh in subMeshDrawerItems"
+								:key="subMesh.value"
+								class="submesh-drawer-item"
+								:class="{ 'is-selected': subMesh.isSelected }"
+							>
+								<div class="submesh-drawer-row">
+									<button
+										class="submesh-select-btn"
+										type="button"
+										:title="subMesh.label"
+										@click="selectSubMeshFromDrawer(subMesh.value)"
+									>
+										<span class="submesh-label">{{ subMesh.label }}</span>
+										<span class="submesh-count">{{ subMesh.markCount }}</span>
+									</button>
 								</div>
-							</div>
-						</section>
-					</nav>
+
+								<div class="submesh-marked-list">
+									<button
+										v-for="summary in subMesh.markedTextures"
+										:key="summary.id"
+										class="submesh-marked-texture"
+										type="button"
+										:title="summary.textureName"
+										@click="selectMarkedTextureSummary(subMesh.value, summary)"
+									>
+										<span class="submesh-mark-preview">
+											<img
+												:key="summary.previewKey"
+												:src="summary.preview"
+												:alt="summary.markName"
+												:style="{ opacity: summary.preview ? 1 : 0 }"
+												@load="handlePreviewImageLoad"
+												@error="handlePreviewImageError"
+											/>
+										</span>
+										<span class="submesh-mark-meta">
+											<span class="submesh-mark-meta-row">
+												<span class="submesh-mark-name">{{ summary.markName }}</span>
+												<span
+													class="submesh-mark-status"
+													:class="summary.status === 'applied' ? 'is-applied' : 'is-pending'"
+												>
+													{{ summary.status === 'applied' ? '已应用' : '未应用' }}
+												</span>
+											</span>
+											<span class="submesh-mark-style">{{ summary.markStyle }}</span>
+										</span>
+									</button>
+									<div v-if="subMesh.markedTextures.length === 0" class="submesh-empty-mark">
+										-
+									</div>
+								</div>
+							</section>
+						</nav>
+
+						<SubmeshPostProcessPreview
+							:key="selectedSubMesh"
+							:workspace-path="getSelectedWorkspaceSource()?.workspacePath || ''"
+							:sub-mesh-name="getSelectedSubMeshName()"
+							:texture-options="previewTextureOptions"
+							@data-type-changed="refreshSubMeshMarkedTextureSummary(selectedSubMesh)"
+						/>
+					</div>
 
 					<div class="texture-editor-pane">
 						<div class="texture-editor-toolbar">
@@ -2682,6 +2731,14 @@ watch(
 	min-width: 0;
 	display: grid;
 	grid-template-columns: minmax(220px, 30%) minmax(0, 1fr);
+	gap: 14px;
+}
+
+.submesh-side-column {
+	min-width: 0;
+	min-height: 0;
+	display: grid;
+	grid-template-rows: minmax(150px, 1fr) minmax(560px, 68%);
 	gap: 14px;
 }
 
@@ -3669,8 +3726,12 @@ watch(
 		grid-template-columns: 1fr;
 	}
 
+	.submesh-side-column {
+		grid-template-rows: minmax(180px, auto) minmax(560px, auto);
+	}
+
 	.submesh-drawer-list {
-		max-height: none;
+		max-height: 360px;
 	}
 
 	.texture-editor-toolbar {

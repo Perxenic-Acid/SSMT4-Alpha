@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, watch, reactive, nextTick } from 'vue';
+import { ref, onMounted, onUnmounted, onActivated, onDeactivated, computed, watch, reactive, nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { openPath } from '@tauri-apps/plugin-opener';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
@@ -69,6 +69,15 @@ import {
 const gamesList = AppStateManager.gamesList;
 const appSettings = AppStateManager.appSettings;
 const { t } = useI18n();
+
+const isNsfwMod = (mod: ModInfo): boolean => {
+    const text = [
+        mod.name,
+        mod.group,
+        ...getTagsForMod(mod).map((tag) => tag.name),
+    ].join(' ').toLowerCase();
+    return /\bnsfw\b|\br[- ]?18\b|\b18\+|\badult\b|\bhentai\b|\bnud(?:e|ity)\b|\bnaked\b|\bsex(?:ual)?\b|成人|色情|裸露|无码/.test(text);
+};
 
 type ElTreeNode = { key?: string; level: number; expanded: boolean; data: GroupInfo; childNodes: ElTreeNode[]; expand: () => void; collapse: () => void; setExpandedKeys?: (keys: string[]) => void }
 
@@ -882,6 +891,10 @@ const isOrderPersistencePaused = computed(() => orderPersistencePauseDepth.value
 let groupLoadToken = 0;
 let startWatchingToken = 0;
 let refreshModsToken = 0;
+let needsReactivationRescan = false;
+let reactivationRescanRunning = false;
+const isModsPageActive = ref(true);
+let watchedGameName = '';
 
 const makeScanSignal = (getToken: () => number, token: number) => ({
     isCancelled: () => getToken() !== token,
@@ -1348,32 +1361,93 @@ const sanitizeExpanded = (game: string) => {
     return [...(expandedState.value[game] || [])];
 };
 
-const appendModsIncrementally = async (incomingMods: ModInfo[], token: number) => {
+interface ModReconcileOptions {
+    removeMissing?: boolean;
+    refreshAnalysis?: boolean;
+}
+
+const appendModsIncrementally = async (
+    incomingMods: ModInfo[],
+    token: number,
+    options: ModReconcileOptions = {},
+) => {
+    const removeMissing = options.removeMissing !== false;
+    const refreshAnalysis = options.refreshAnalysis !== false;
     modHydrationDepth.value += 1;
     try {
         totalModsCount.value = incomingMods.length;
-        clearModAnalysisSubscriptions();
+        if (refreshAnalysis) clearModAnalysisSubscriptions();
 
-        for (let i = 0; i < incomingMods.length; i += MOD_RENDER_BATCH_SIZE) {
-            if (token !== groupLoadToken) return;
-            const batch = incomingMods.slice(i, i + MOD_RENDER_BATCH_SIZE);
-            if (i === 0) {
-                // First batch: replace instantly so user sees content immediately
-                mods.value = batch;
+        const existingByIdentity = new Map(
+            mods.value.map((mod) => [normalizeModIdentity(mod.relativePath || mod.id), mod]),
+        );
+        const retained: ModInfo[] = [];
+        const additions: ModInfo[] = [];
+        const incomingIdentities = new Set<string>();
+
+        for (const fresh of incomingMods) {
+            const identity = normalizeModIdentity(fresh.relativePath || fresh.id);
+            if (!identity || incomingIdentities.has(identity)) continue;
+            incomingIdentities.add(identity);
+            const existing = existingByIdentity.get(identity);
+            if (existing) {
+                Object.assign(existing, fresh);
+                retained.push(existing);
             } else {
-                mods.value = [...mods.value, ...batch];
+                additions.push(fresh);
             }
+        }
+
+        if (removeMissing) {
+            // Keep existing item references for Vue's keyed FLIP transition, so
+            // only vanished folders leave instead of rebuilding the whole grid.
+            mods.value = retained;
+            loadedModsCount.value = retained.length;
+            await nextTick();
+        }
+
+        for (let i = 0; i < additions.length; i += MOD_RENDER_BATCH_SIZE) {
+            if (token !== groupLoadToken) return;
+            const batch = additions.slice(i, i + MOD_RENDER_BATCH_SIZE);
+            mods.value = [...mods.value, ...batch];
             loadedModsCount.value = mods.value.length;
-            queueVisibleModAnalysis(batch);
-            // Yield to the browser paint cycle between batches so the UI stays responsive.
-            // Only yield if there are more batches coming (single-batch loads render instantly).
-            if (i + MOD_RENDER_BATCH_SIZE < incomingMods.length) {
+            if (i + MOD_RENDER_BATCH_SIZE < additions.length) {
                 await new Promise((resolve) => requestAnimationFrame(resolve));
             }
+        }
+
+        if (!removeMissing) {
+            loadedModsCount.value = mods.value.length;
+        }
+        if (refreshAnalysis && incomingMods.length > 0) {
+            queueVisibleModAnalysis(incomingMods);
         }
     } finally {
         modHydrationDepth.value = Math.max(0, modHydrationDepth.value - 1);
     }
+};
+
+const reconcileCurrentSubGroups = (incomingGroups: GroupInfo[], removeMissing = true) => {
+    const existingById = new Map(currentSubGroups.value.map((group) => [group.id, group]));
+    const next: GroupInfo[] = [];
+    const additions: GroupInfo[] = [];
+    const seen = new Set<string>();
+
+    for (const fresh of incomingGroups) {
+        if (!fresh.id || seen.has(fresh.id)) continue;
+        seen.add(fresh.id);
+        const existing = existingById.get(fresh.id);
+        if (existing) {
+            Object.assign(existing, fresh);
+            next.push(existing);
+        } else {
+            additions.push(fresh);
+        }
+    }
+
+    currentSubGroups.value = removeMissing
+        ? [...next, ...additions]
+        : [...currentSubGroups.value, ...additions];
 };
 
 const hasVisibleContent = () => mods.value.length > 0 || currentSubGroups.value.length > 0 || availableGroups.value.length > 0;
@@ -1393,7 +1467,7 @@ const applyCachedSnapshot = async (gameName: string) => {
         return false;
     }
 
-    currentSubGroups.value = targetCached.groups;
+    reconcileCurrentSubGroups(targetCached.groups);
     const token = ++groupLoadToken;
     await appendModsIncrementally(targetCached.mods, token);
     return true;
@@ -1814,6 +1888,14 @@ onMounted(async () => {
     });
 
     unlistenFileChange = await listen<string[]>('mod-library-files-changed', () => {
+        // Keep-alive views remain subscribed while hidden.  Do not start an
+        // expensive filesystem/index refresh in the background: record the
+        // change and perform the one deliberate rescan when this page is
+        // brought back into view.
+        if (!isModsPageActive.value) {
+            needsReactivationRescan = true;
+            return;
+        }
         if (debounceTimer) clearTimeout(debounceTimer);
         debounceTimer = setTimeout(async () => {
             if (!selectedGame.value) return;
@@ -1878,6 +1960,10 @@ onUnmounted(() => {
 watch(selectedGame, (newVal) => {
     if (newVal) {
         void (async () => {
+            if (!isModsPageActive.value) {
+                needsReactivationRescan = true;
+                return;
+            }
             const remembered = selectedGroupState.value[newVal];
             const nextGroup = await resolvePreferredGroup(newVal, remembered);
             if (selectedGame.value !== newVal) {
@@ -1971,6 +2057,7 @@ const startWatching = async (gameName: string) => {
 
         const installDir = await ModManager.getInstallDir(gameName);
         await invoke('watch_mod_library', { installDir });
+        watchedGameName = gameName;
     } catch (error) {
         console.error('Failed to start watching:', error);
     } finally {
@@ -2065,13 +2152,42 @@ mutationReconciler = createMutationReconciler({
         // Rebuild the persistent Rust index first, then hydrate the current
         // view and lazy tree from that fresh source of truth.
         await ModManager.refreshLibrary(gameName);
-        await refreshMods(gameName);
+        await refreshMods(gameName, { preserveVisible: true });
         bumpGroupTree();
     },
     onError: (error, impact) => {
         console.error(`Failed to reconcile ${impact} mutation`, error);
         ElMessage.error(t('modsManagement.messages.scanFailed', { error: String(error) }));
     },
+});
+
+const rescanAfterReactivation = async () => {
+    if (!needsReactivationRescan || reactivationRescanRunning || !selectedGame.value) return;
+    reactivationRescanRunning = true;
+    try {
+        if (watchedGameName !== selectedGame.value) {
+            await startWatching(selectedGame.value);
+        }
+        // A kept-alive page can miss watcher events while another view is active.
+        // Rebuild the persistent index before showing it again so paths always
+        // reflect the actual Mods directory, not a stale cached snapshot.
+        await refreshAfterMutation('structure');
+    } catch (error) {
+        console.error('Failed to rescan Mods after reactivation:', error);
+    } finally {
+        needsReactivationRescan = false;
+        reactivationRescanRunning = false;
+    }
+};
+
+onDeactivated(() => {
+    isModsPageActive.value = false;
+    needsReactivationRescan = true;
+});
+
+onActivated(() => {
+    isModsPageActive.value = true;
+    void rescanAfterReactivation();
 });
 
 const updateAvailableGroups = (newGroups: GroupInfo[]) => {
@@ -2551,7 +2667,7 @@ const navigateToParentGroup = async () => {
     selectedGroup.value = targetGroup;
     syncTreeCurrentSelection(targetGroup);
     await expandGroupPath(targetGroup);
-    await loadGroupMods(targetGroup, { showProgress: false, refresh: true });
+    await loadGroupMods(targetGroup, { showProgress: false });
     return true;
 };
 
@@ -2568,7 +2684,7 @@ const navigateBackGroup = async () => {
         selectedGroup.value = targetGroup;
         syncTreeCurrentSelection(targetGroup);
         await expandGroupPath(targetGroup);
-        await loadGroupMods(targetGroup, { showProgress: false, refresh: true });
+        await loadGroupMods(targetGroup, { showProgress: false });
     } finally {
         isApplyingGroupHistory.value = false;
     }
@@ -2587,7 +2703,7 @@ const navigateForwardGroup = async () => {
         selectedGroup.value = targetGroup;
         syncTreeCurrentSelection(targetGroup);
         await expandGroupPath(targetGroup);
-        await loadGroupMods(targetGroup, { showProgress: false, refresh: true });
+        await loadGroupMods(targetGroup, { showProgress: false });
     } finally {
         isApplyingGroupHistory.value = false;
     }
@@ -2620,7 +2736,7 @@ const loadGroupMods = async (groupId: String, options?: { showProgress?: boolean
         const cached = ModManager.getCachedGroup(selectedGame.value, String(path));
         if (cached) {
             updateAvailableGroups(cached.groups);
-            currentSubGroups.value = cached.groups;
+            reconcileCurrentSubGroups(cached.groups);
             void preloadSubgroupPreviewImages(cached.groups);
             await appendModsIncrementally(cached.mods, token);
             if (token !== groupLoadToken) return;
@@ -2632,12 +2748,16 @@ const loadGroupMods = async (groupId: String, options?: { showProgress?: boolean
     }
     try {
         const { mods: newMods, groups: newGroups } = isAllGroup
-            ? await ModManager.refreshLibrary(selectedGame.value, signal)
+            // "All" is a view change, not a request to probe the Mods folder
+            // again.  The persistent index is rebuilt only at startup,
+            // reactivation, a known local mutation, or a filesystem-change
+            // notification.
+            ? await ModManager.scanAllMods(selectedGame.value, signal)
             : await ModManager.scanGroup(selectedGame.value, path as string, signal, { refresh: !!options?.refresh });
         if (token !== groupLoadToken) return;
         if (signal?.isCancelled?.()) return;
         updateAvailableGroups(newGroups);
-        currentSubGroups.value = isAllGroup ? [] : newGroups;
+        reconcileCurrentSubGroups(isAllGroup ? [] : newGroups);
         if (!isAllGroup) {
             void preloadSubgroupPreviewImages(newGroups);
         }
@@ -2680,42 +2800,41 @@ const loadGroupModsStreaming = async (gameName: string, groupPath: string, refre
     let streamedChunks = false;
     const accumulatedMods: ModInfo[] = [];
     const accumulatedGroups: GroupInfo[] = [];
+    let chunkReconcile = Promise.resolve();
 
     const unlistenChunk = await listen<ScanChunkEvent>('mod-library-scan-chunk', (event) => {
         const payload = event.payload;
         if (!payload) return;
-
-        switch (payload.phase) {
-            case 'start':
-                totalModsCount.value = payload.total ?? 0;
-                accumulatedMods.length = 0;
-                accumulatedGroups.length = 0;
-                currentSubGroups.value = [];
-                break;
-            case 'chunk': {
-                streamedChunks = true;
-                if (payload.mods && payload.mods.length > 0) {
-                    accumulatedMods.push(...payload.mods);
-                    // Show mods as they arrive — sorted for display
-                    mods.value = [...accumulatedMods].sort((a, b) =>
-                        a.name.toLowerCase().localeCompare(b.name.toLowerCase())
-                    );
-                    loadedModsCount.value = mods.value.length;
-                    queueVisibleModAnalysis(payload.mods);
+        chunkReconcile = chunkReconcile.then(async () => {
+            switch (payload.phase) {
+                case 'start':
+                    totalModsCount.value = payload.total ?? 0;
+                    accumulatedMods.length = 0;
+                    accumulatedGroups.length = 0;
+                    // Preserve cards until the final scan result is available; this
+                    // avoids an empty, disorienting page during a background rescan.
+                    break;
+                case 'chunk': {
+                    streamedChunks = true;
+                    if (payload.mods && payload.mods.length > 0) {
+                        accumulatedMods.push(...payload.mods);
+                        await appendModsIncrementally(accumulatedMods, groupLoadToken, {
+                            removeMissing: false,
+                            refreshAnalysis: false,
+                        });
+                    }
+                    if (payload.groups && payload.groups.length > 0) {
+                        accumulatedGroups.push(...payload.groups);
+                        updateAvailableGroups(payload.groups);
+                        reconcileCurrentSubGroups(accumulatedGroups, false);
+                    }
+                    break;
                 }
-                if (payload.groups && payload.groups.length > 0) {
-                    accumulatedGroups.push(...payload.groups);
-                    updateAvailableGroups(payload.groups);
-                    currentSubGroups.value = [...accumulatedGroups].sort((a, b) =>
-                        a.name.toLowerCase().localeCompare(b.name.toLowerCase())
-                    );
-                }
-                break;
+                case 'done':
+                    totalModsCount.value = payload.totalMods ?? accumulatedMods.length;
+                    break;
             }
-            case 'done':
-                totalModsCount.value = payload.totalMods ?? accumulatedMods.length;
-                break;
-        }
+        });
     });
 
     try {
@@ -2726,19 +2845,17 @@ const loadGroupModsStreaming = async (gameName: string, groupPath: string, refre
             groupPath: relativePath || 'Root',
         });
 
+        await chunkReconcile;
+
         if (refreshModsToken !== refreshToken) return streamedChunks;
 
         // Finish with the command result so cached and streamed paths converge to
         // the same state even if no group chunk was emitted.
         if (result) {
             updateAvailableGroups(result.groups);
-            currentSubGroups.value = result.groups;
-            mods.value = result.mods;
-            loadedModsCount.value = result.mods.length;
+            reconcileCurrentSubGroups(result.groups);
+            await appendModsIncrementally(result.mods, groupLoadToken);
             totalModsCount.value = result.mods.length;
-            if (result.mods.length > 0) {
-                queueVisibleModAnalysis(result.mods);
-            }
         }
     } catch (e) {
         if (ModManager.isScanCancelled(e)) {
@@ -3215,6 +3332,17 @@ const {
                         </svg>
                     </button>
                     <div class="tb-divider"></div>
+                    <el-tooltip :content="t('modsManagement.ui.blurNsfwPreviews')" placement="bottom">
+                        <el-switch
+                            v-model="appSettings.modsManagementBlurNsfw"
+                            class="tb-nsfw-switch"
+                            inline-prompt
+                            active-text="NSFW"
+                            inactive-text="NSFW"
+                            :aria-label="t('modsManagement.ui.blurNsfwPreviews')"
+                        />
+                    </el-tooltip>
+                    <div class="tb-divider"></div>
                     <button
                         type="button"
                         class="tb-btn tb-btn--primary tb-btn--icon"
@@ -3443,7 +3571,7 @@ const {
             
             <div v-else class="mod-content-sections">
                 <!-- Subgroups: grid cards -->
-                <div class="mod-grid" v-if="viewMode === 'grid' && visibleSubGroups.length > 0">
+                <TransitionGroup name="mod-entry" tag="div" class="mod-grid" v-if="viewMode === 'grid' && visibleSubGroups.length > 0">
                 <div
                     v-for="group in visibleSubGroups"
                     :key="`group-${group.id}`"
@@ -3495,10 +3623,10 @@ const {
                         >{{ tag.name }}</span>
                     </div>
                 </div>
-                </div>
+                </TransitionGroup>
 
                 <!-- Grid view: mod cards -->
-                <div v-if="viewMode === 'grid'" class="mod-grid">
+                <TransitionGroup v-if="viewMode === 'grid'" name="mod-entry" tag="div" class="mod-grid">
                 <ModCard
                     v-for="mod in filteredMods"
                     :key="`mod-${getStableModUiId(mod)}`"
@@ -3514,6 +3642,7 @@ const {
                     :group-icon-url="(mod.group !== 'Root' && getGroupIcon(mod.group)) ? getGroupIconUrl((getGroupIcon(mod.group) as string)) : ''"
                     :group-display-name="mod.group !== 'Root' ? (mod.group.split('/').pop() ?? '') : ''"
                     :is-root-group="mod.group === 'Root'"
+                    :blur-nsfw-preview="appSettings.modsManagementBlurNsfw && isNsfwMod(mod)"
                     @contextmenu="showModContextMenu($event, mod)"
                     @card-mousedown="onCardMouseDownWrapper($event, mod)"
                     @mousemove="onModCardMouseMove"
@@ -3529,7 +3658,7 @@ const {
                     @open-presets="openPresetPopover(mod, $event)"
                     :preset-name="getActivePresetName(mod)"
                 />
-                </div>
+                </TransitionGroup>
 
                 <!-- List view -->
                 <div v-else class="mod-list glass-panel">
@@ -3543,6 +3672,7 @@ const {
                 </div>
 
                 <!-- List view: subgroup rows -->
+                <TransitionGroup name="mod-entry" tag="div" class="mod-list-transition">
                 <div
                     v-for="group in visibleSubGroups"
                     :key="`group-list-${group.id}`"
@@ -3584,8 +3714,10 @@ const {
                     <span class="mod-list-cell mod-list-cell--group">{{ t('modsManagement.ui.modCount') }}: {{ group.modCount ?? 0 }}</span>
                     <span class="mod-list-cell mod-list-cell--modified">—</span>
                 </div>
+                </TransitionGroup>
 
                 <!-- List view: mod rows -->
+                <TransitionGroup name="mod-entry" tag="div" class="mod-list-transition">
                 <div
                     v-for="mod in filteredMods"
                     :key="`mod-list-${getStableModUiId(mod)}`"
@@ -3605,12 +3737,14 @@ const {
                                 fit="cover"
                                 loading="lazy"
                                 class="mod-list-thumb-img"
+                                :class="{ 'is-nsfw-blurred': appSettings.modsManagementBlurNsfw && isNsfwMod(mod) }"
                             >
                                 <template #error>
                                     <span class="mod-list-thumb-fallback">{{ mod.name.charAt(0) }}</span>
                                 </template>
                             </el-image>
                             <span v-else class="mod-list-thumb-fallback">{{ mod.name.charAt(0) }}</span>
+                            <span v-if="appSettings.modsManagementBlurNsfw && isNsfwMod(mod)" class="mod-list-nsfw-shield">NSFW</span>
                         </div>
                     </span>
                     <!-- Name -->
@@ -3655,6 +3789,7 @@ const {
                         {{ mod.lastModified ? new Date(mod.lastModified * 1000).toLocaleDateString() : '—' }}
                     </span>
                 </div>
+                </TransitionGroup>
                 </div>
             </div>
         </div>
@@ -4802,6 +4937,22 @@ const {
     gap: 28px;
 }
 
+.mod-entry-enter-active,
+.mod-entry-leave-active,
+.mod-entry-move {
+    transition: opacity .2s ease, transform .24s cubic-bezier(.2, .7, .2, 1);
+}
+
+.mod-entry-enter-from,
+.mod-entry-leave-to {
+    opacity: 0;
+    transform: scale(.975) translateY(8px);
+}
+
+.mod-list-transition {
+    display: contents;
+}
+
 /* ===== List View ===== */
 .mod-list {
     display: flex;
@@ -4888,6 +5039,7 @@ const {
 .mod-list-cell--modified { width: 90px; flex-shrink: 0; color: rgba(255,255,255,0.45); font-size: 12px; }
 
 .mod-list-thumb {
+    position: relative;
     width: 36px; height: 36px;
     border-radius: 8px;
     overflow: hidden;
@@ -4902,6 +5054,24 @@ const {
 }
 .mod-list-thumb-img {
     width: 100%; height: 100%;
+}
+.mod-list-thumb-img.is-nsfw-blurred {
+    filter: blur(12px) saturate(0.82);
+    transform: scale(1.14);
+}
+.mod-list-nsfw-shield {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    display: grid;
+    place-items: center;
+    color: rgba(255,255,255,0.9);
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    background: rgba(6, 8, 12, 0.18);
+    text-shadow: 0 1px 6px rgba(0,0,0,0.9);
+    pointer-events: none;
 }
 .mod-list-thumb-fallback {
     font-size: 16px; font-weight: 700;
