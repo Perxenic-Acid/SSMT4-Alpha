@@ -24,3 +24,9 @@ SSMT4开源版仅包含了基础的启动器、管理器、模型提取功能，
 https://afdian.com/item/ec74ee782b2f11efb5a052540025c377
 
 没有这些附加的功能也不会影响你正常使用SSMT，请放心好了。
+
+# LTS技术支持群(大本营)
+
+大本营在discord，技术讨论可以去里面，为满足合规需求，暂时不开国内聊天群
+
+Server Invite Link: https://discord.gg/hgzbSSXXz2
