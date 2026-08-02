@@ -14,3 +14,19 @@
 - 更多蓝图特性的Blender插件: https://github.com/xuhuan9102/TheHerta4
 - SSMT4文档源代码：https://starbobis.github.io/SSMT4-Documents/
 - SSMT4文档阅读地址：https://github.com/StarBobis/SSMT4-Documents
+
+# 附加功能移除说明
+
+SSMT4开源版仅包含了基础的启动器、管理器、模型提取功能，基础功能方便社区共建
+
+其他附加功能为了满足开源社区的合规要求，已从SSMT4中删除，需要的话可以赞助LTS获取：
+
+https://afdian.com/item/ec74ee782b2f11efb5a052540025c377
+
+没有这些附加的功能也不会影响你正常使用SSMT，请放心好了。
+
+# LTS技术支持群(大本营)
+
+大本营在discord，技术讨论可以去里面，为满足合规需求，暂时不开国内聊天群
+
+Server Invite Link: https://discord.gg/hgzbSSXXz2
