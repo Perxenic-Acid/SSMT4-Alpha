@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, nextTick } from 'vue';
-import { ArrowRight, Folder, FolderAdd, Edit, Plus, Delete, Picture, Download } from '@element-plus/icons-vue';
+import { ArrowRight, Folder, FolderAdd, Edit, Plus, Delete, Picture, Download, WarningFilled } from '@element-plus/icons-vue';
 import { useI18n } from 'vue-i18n';
 import { calculateContextMenuPosition } from '../../utils/ContextMenuPosition';
 import type { GroupInfo, ModInfo } from './ModsManagement.types';
@@ -11,6 +11,7 @@ const props = defineProps<{
   y: number;
   target: ModInfo | null;
   groups: GroupInfo[];
+  isNsfw?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -25,6 +26,7 @@ const emit = defineEmits<{
   'paste-clipboard-preview-image': [mod: ModInfo];
   'delete-mod': [mod: ModInfo];
   'enable-mod-solo': [mod: ModInfo];
+  'toggle-nsfw': [mod: ModInfo];
 }>();
 
 const { t } = useI18n();
@@ -118,6 +120,10 @@ watch(() => props.visible, (newVal) => {
       <div class="menu-item" @click="emit('close'); emit('open-mod-tag-dialog', target as ModInfo)">
         <el-icon><Plus /></el-icon>
         <span>{{ t('modsManagement.actions.editModTags') }}</span>
+      </div>
+      <div class="menu-item" @click="emit('close'); emit('toggle-nsfw', target as ModInfo)">
+        <el-icon><WarningFilled /></el-icon>
+        <span>{{ t(props.isNsfw ? 'modsManagement.actions.unmarkNsfw' : 'modsManagement.actions.markNsfw') }}</span>
       </div>
       <div class="menu-item" @click="emit('close'); emit('add-preview-images', target as ModInfo)">
         <el-icon><Picture /></el-icon>
