@@ -19,9 +19,9 @@
 
 SSMT4开源版仅包含了基础的启动器、管理器、模型提取功能，基础功能方便社区共建
 
-其他附加功能为了满足开源社区的合规要求，已从SSMT4中删除，需要的话可以赞助LTS获取：
+其他附加功能为了满足开源社区的合规要求，已从SSMT4中删除，并放入MIMITools 咪咪工具箱中
 
-https://afdian.com/item/ec74ee782b2f11efb5a052540025c377
+https://github.com/StarBobis/MIMITools
 
 没有这些附加的功能也不会影响你正常使用SSMT，请放心好了。
 
