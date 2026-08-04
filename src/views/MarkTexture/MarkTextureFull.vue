@@ -1,6 +1,6 @@
 ﻿<script setup lang="ts">
 import { computed, onActivated, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { convertFileSrc } from '@tauri-apps/api/core';
+import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { dirname, join } from '@tauri-apps/api/path';
 import { exists, mkdir, readDir, readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
 import { openPath as openExternal, revealItemInDir } from '@tauri-apps/plugin-opener';
@@ -38,6 +38,8 @@ import {
 	getMarkTextureTrianglelistJsonPath,
 	hasExistingSubMeshTextureMarks,
 	readAppliedSubMeshTextureMarks,
+	readDrawCallIndexesMatchedByPersistedSubMeshMarks,
+	readPersistedSubMeshDrawCallIndexes,
 	updateCurrentSubMeshTextureMarkupStyle,
 } from './MarkTextureFull';
 
@@ -71,6 +73,14 @@ type PreviewTextureOption = {
 	label: string;
 	url: string;
 	markName: string;
+};
+
+type PreviewSubMeshTarget = {
+	id: string;
+	workspacePath: string;
+	subMeshName: string;
+	diffuseUrl?: string;
+	normalUrl?: string;
 };
 
 type SubMeshMarkedTextureSummary = {
@@ -146,6 +156,10 @@ const drawCallOptions = ref<string[]>([]);
 
 const selectedSubMesh = ref('');
 const selectedDrawCall = ref('');
+const previewSyncSelectedSubMesh = ref(false);
+const mutedPreviewSubMeshMap = ref<Record<string, boolean>>({});
+const soloPreviewSubMeshMap = ref<Record<string, boolean>>({});
+const previewReviewSubMeshMap = ref<Record<string, boolean>>({});
 
 const markStyleOptions: MarkStyle[] = ['Hash', 'Slot', 'SharedSlot'];
 const textureChannelKeys: TextureChannelKey[] = ['R', 'G', 'B', 'A'];
@@ -571,6 +585,40 @@ const subMeshDrawerItems = computed<SubMeshDrawerItem[]>(() => {
 	});
 });
 
+const previewSubMeshTargets = computed<PreviewSubMeshTarget[]>(() => {
+	const selectedOnly = previewSyncSelectedSubMesh.value
+		? subMeshDrawerItems.value.filter(item => item.value === selectedSubMesh.value)
+		: (() => {
+			const soloItems = subMeshDrawerItems.value.filter(item => soloPreviewSubMeshMap.value[item.value]);
+			return soloItems.length > 0
+				? soloItems
+				: subMeshDrawerItems.value.filter(item => !mutedPreviewSubMeshMap.value[item.value]);
+		})();
+
+	return selectedOnly.flatMap(item => {
+		const parsed = parseSubMeshSelection(item.value);
+		const source = parsed
+			? workspaceSources.value.find(candidate => candidate.tabId === parsed.tabId)
+			: undefined;
+		if (!parsed || !source) {
+			return [];
+		}
+		const markedTextures = subMeshMarkedTextureMap.value[item.value] ?? [];
+		const findMarkedPreview = (markName: string): string | undefined => {
+			return markedTextures.find(summary => (
+				summary.markName.trim().toLowerCase() === markName.toLowerCase() && !!summary.preview
+			))?.preview;
+		};
+		return [{
+			id: item.value,
+			workspacePath: source.workspacePath,
+			subMeshName: parsed.subMeshName,
+			diffuseUrl: findMarkedPreview('DiffuseMap'),
+			normalUrl: findMarkedPreview('NormalMap'),
+		}];
+	});
+});
+
 const previewTextureOptions = computed<PreviewTextureOption[]>(() => {
 	const options = new Map<string, PreviewTextureOption>();
 	const appliedOrPendingMarks = subMeshMarkedTextureMap.value[selectedSubMesh.value] ?? [];
@@ -687,6 +735,11 @@ const loadWorkspaceMarkTextureSource = async (
 	const drawIBComponentJsonPath = await getMarkTextureDrawIBComponentJsonPath(workspacePath);
 
 	try {
+		// Repair mappings produced by older builds from the extracted folders.
+		// This is intentionally independent of Blender's Import.json selections.
+		await invoke('regenerate_draw_ib_component_json', { lodWorkspacePath: workspacePath })
+			.catch(error => console.warn(`${logPrefix} failed to rebuild component map`, error));
+
 		const [componentContent, trianglelistContent, drawIBConfigEntries] = await Promise.all([
 			readTextFile(componentJsonPath),
 			readTextFile(trianglelistJsonPath),
@@ -695,21 +748,17 @@ const loadWorkspaceMarkTextureSource = async (
 
 		const parsedComponent = JSON.parse(componentContent) as Record<string, unknown>;
 		const parsedTrianglelist = JSON.parse(trianglelistContent) as TrianglelistDedupedFileNameJson;
-		const subMeshDrawCallMap: Record<string, string[]> = {};
+		const rawSubMeshDrawCallMap: Record<string, string[]> = {};
 
 		for (const [subMeshName, drawCalls] of Object.entries(parsedComponent)) {
 			if (!subMeshName.trim() || !Array.isArray(drawCalls)) {
 				continue;
 			}
 
-			subMeshDrawCallMap[subMeshName] = drawCalls
+			rawSubMeshDrawCallMap[subMeshName] = drawCalls
 				.filter((item): item is string => typeof item === 'string')
 				.map(item => item.trim())
 				.filter(item => item.length > 0);
-		}
-
-		if (Object.keys(subMeshDrawCallMap).length === 0) {
-			return undefined;
 		}
 
 		const drawIBAliasMap: Record<string, string> = {};
@@ -728,7 +777,9 @@ const loadWorkspaceMarkTextureSource = async (
 			drawIBAliasMap[drawIB] = alias;
 		}
 
-		// 读取 DrawIB-Component.json 构建反向映射：submeshFolderName → { drawIB, componentIndex }
+		// DrawIB-Component.json is the complete extracted-component mapping.
+		// Import.json belongs to Blender's selected data-type state and must not
+		// control the post-process list or the importable component set.
 		const drawIBComponentMap: Record<string, { drawIB: string; componentIndex: string }> = {};
 		try {
 			if (await exists(drawIBComponentJsonPath)) {
@@ -748,6 +799,40 @@ const loadWorkspaceMarkTextureSource = async (
 			}
 		} catch {
 			// DrawIB-Component.json missing or invalid — leave map empty, fall back to legacy labels
+		}
+
+		const subMeshDrawCallMap: Record<string, string[]> = {};
+		if (Object.keys(drawIBComponentMap).length > 0) {
+			const persistedDrawCallLists = await Promise.all(
+				Object.keys(drawIBComponentMap).map(async subMeshName => [
+					subMeshName,
+					await readPersistedSubMeshDrawCallIndexes({ workspacePath, subMesh: subMeshName }),
+				] as const)
+			);
+			for (const [subMeshName, persistedDrawCalls] of persistedDrawCallLists) {
+				// New extraction results persist the component's own draw-call list
+				// directly beside its geometry.  Prefer it over the legacy aggregate
+				// file, which can become stale after component selection changes.
+				const directLegacyDrawCalls = rawSubMeshDrawCallMap[subMeshName] ?? [];
+				const drawCallsMatchedByPersistedMarks = persistedDrawCalls.length === 0 && directLegacyDrawCalls.length === 0
+					? await readDrawCallIndexesMatchedByPersistedSubMeshMarks({
+						workspacePath,
+						subMesh: subMeshName,
+						trianglelistDedupedDict: parsedTrianglelist,
+					})
+					: [];
+				subMeshDrawCallMap[subMeshName] = persistedDrawCalls.length > 0
+					? persistedDrawCalls
+					: directLegacyDrawCalls.length > 0
+						? directLegacyDrawCalls
+						: drawCallsMatchedByPersistedMarks;
+			}
+		} else {
+			Object.assign(subMeshDrawCallMap, rawSubMeshDrawCallMap);
+		}
+
+		if (Object.keys(subMeshDrawCallMap).length === 0) {
+			return undefined;
 		}
 
 		return {
@@ -899,6 +984,16 @@ const loadSubMeshOptions = async () => {
 			});
 
 		subMeshOptions.value = nextSubMeshOptions;
+		const validSubMeshSelections = new Set(nextSubMeshOptions);
+		mutedPreviewSubMeshMap.value = Object.fromEntries(
+			Object.entries(mutedPreviewSubMeshMap.value).filter(([selectionValue]) => validSubMeshSelections.has(selectionValue))
+		);
+		soloPreviewSubMeshMap.value = Object.fromEntries(
+			Object.entries(soloPreviewSubMeshMap.value).filter(([selectionValue]) => validSubMeshSelections.has(selectionValue))
+		);
+		previewReviewSubMeshMap.value = Object.fromEntries(
+			Object.entries(previewReviewSubMeshMap.value).filter(([selectionValue]) => validSubMeshSelections.has(selectionValue))
+		);
 
 		if (
 			pendingRestoreSubMesh.value &&
@@ -1769,6 +1864,32 @@ const selectSubMeshFromDrawer = (selectionValue: string) => {
 	selectedSubMesh.value = selectionValue;
 };
 
+const togglePreviewSubMeshMuted = (selectionValue: string) => {
+	if (previewSyncSelectedSubMesh.value) {
+		return;
+	}
+	mutedPreviewSubMeshMap.value = {
+		...mutedPreviewSubMeshMap.value,
+		[selectionValue]: !mutedPreviewSubMeshMap.value[selectionValue],
+	};
+};
+
+const togglePreviewSubMeshSolo = (selectionValue: string) => {
+	if (previewSyncSelectedSubMesh.value) {
+		return;
+	}
+	soloPreviewSubMeshMap.value = {
+		...soloPreviewSubMeshMap.value,
+		[selectionValue]: !soloPreviewSubMeshMap.value[selectionValue],
+	};
+};
+
+const updatePreviewReviewSubMeshes = (targetIds: string[]) => {
+	previewReviewSubMeshMap.value = Object.fromEntries(
+		targetIds.map(targetId => [targetId, true])
+	);
+};
+
 const selectMarkedTextureSummary = (
 	subMeshSelectionValue: string,
 	summary: SubMeshMarkedTextureSummary
@@ -2374,13 +2495,6 @@ watch(
 							</section>
 						</nav>
 
-						<SubmeshPostProcessPreview
-							:key="selectedSubMesh"
-							:workspace-path="getSelectedWorkspaceSource()?.workspacePath || ''"
-							:sub-mesh-name="getSelectedSubMeshName()"
-							:texture-options="previewTextureOptions"
-							@data-type-changed="refreshSubMeshMarkedTextureSummary(selectedSubMesh)"
-						/>
 					</div>
 
 					<div class="texture-editor-pane">
@@ -2678,6 +2792,61 @@ watch(
 							SharedSlot
 						</el-button>
 					</div>
+
+					<div class="right-preview-area">
+						<nav class="preview-visibility-matrix" :aria-label="t('markTexture.preview.visibilityControls')">
+							<button
+								type="button"
+								class="preview-visibility-sync"
+								:class="{ 'is-active': previewSyncSelectedSubMesh }"
+								:title="t('markTexture.preview.syncVisibility')"
+								:aria-label="t('markTexture.preview.syncVisibility')"
+								@click="previewSyncSelectedSubMesh = !previewSyncSelectedSubMesh"
+							>
+								⇆
+							</button>
+							<template v-for="subMesh in subMeshDrawerItems" :key="subMesh.value">
+								<button
+									type="button"
+									class="preview-visibility-button preview-visibility-mute"
+									:class="{
+										'is-active': mutedPreviewSubMeshMap[subMesh.value],
+										'is-current': subMesh.isSelected,
+										'needs-review': previewReviewSubMeshMap[subMesh.value],
+									}"
+									:disabled="previewSyncSelectedSubMesh"
+									:title="`${t('markTexture.preview.muteSubmesh')}: ${subMesh.label}`"
+									:aria-label="`${t('markTexture.preview.muteSubmesh')}: ${subMesh.label}`"
+									@click="togglePreviewSubMeshMuted(subMesh.value)"
+								>
+									M
+								</button>
+								<button
+									type="button"
+									class="preview-visibility-button preview-visibility-solo"
+									:class="{
+										'is-active': soloPreviewSubMeshMap[subMesh.value],
+										'is-current': subMesh.isSelected,
+										'needs-review': previewReviewSubMeshMap[subMesh.value],
+									}"
+									:disabled="previewSyncSelectedSubMesh"
+									:title="`${t('markTexture.preview.soloSubmesh')}: ${subMesh.label}`"
+									:aria-label="`${t('markTexture.preview.soloSubmesh')}: ${subMesh.label}`"
+									@click="togglePreviewSubMeshSolo(subMesh.value)"
+								>
+									S
+								</button>
+							</template>
+						</nav>
+						<SubmeshPostProcessPreview
+							:workspace-path="getSelectedWorkspaceSource()?.workspacePath || ''"
+							:sub-mesh-name="getSelectedSubMeshName()"
+							:visible-sub-mesh-targets="previewSubMeshTargets"
+							:texture-options="previewTextureOptions"
+							@data-type-changed="refreshSubMeshMarkedTextureSummary(selectedSubMesh)"
+							@review-targets-changed="updatePreviewReviewSubMeshes"
+						/>
+					</div>
 				</div>
 			</aside>
 		</div>
@@ -2697,14 +2866,19 @@ watch(
 
 .mark-layout {
 	height: 100%;
+	max-height: 100%;
 	display: flex;
 	gap: 16px;
 	align-items: stretch;
 	min-height: 0;
+	overflow: hidden;
 }
 
 .left-card,
 .right-card {
+	box-sizing: border-box;
+	height: 100%;
+	align-self: stretch;
 	background:
 		linear-gradient(145deg, rgba(var(--theme-surface-tint-rgb), 0.07), rgba(var(--theme-surface-tint-rgb), 0.025)),
 		rgba(255, 255, 255, 0.035);
@@ -2727,24 +2901,26 @@ watch(
 
 .left-workspace {
 	flex: 1;
+	height: 100%;
 	min-height: 0;
 	min-width: 0;
 	display: grid;
-	grid-template-columns: minmax(220px, 30%) minmax(0, 1fr);
+	grid-template-columns: minmax(270px, 34%) minmax(0, 1fr);
 	gap: 14px;
 }
 
 .submesh-side-column {
 	min-width: 0;
 	min-height: 0;
-	display: grid;
-	grid-template-rows: minmax(150px, 1fr) minmax(560px, 68%);
-	gap: 14px;
+	display: flex;
 }
 
 .submesh-drawer-list {
+	flex: 1;
 	min-height: 0;
 	min-width: 0;
+	/* Keep the outer post-processing page fixed, while the potentially long
+	 * Submesh list remains independently scrollable. */
 	overflow-y: auto;
 	overflow-x: hidden;
 	display: flex;
@@ -2986,11 +3162,10 @@ watch(
 }
 
 .right-card {
-	flex: 2;
-	min-width: 180px;
-	align-self: flex-start;
-	position: sticky;
-	top: 0;
+	flex: 3;
+	min-width: 360px;
+	display: flex;
+	flex-direction: column;
 	padding: 16px;
 	max-height: 100%;
 	min-height: 0;
@@ -3452,8 +3627,94 @@ watch(
 	display: flex;
 	flex-direction: column;
 	gap: 10px;
-	height: 100%;
+	flex: 1;
+	min-height: 0;
 	min-width: 0;
+	overflow: hidden;
+}
+
+.right-preview-area {
+	flex: 1;
+	min-height: 0;
+	display: grid;
+	grid-template-columns: 54px minmax(0, 1fr);
+	gap: 8px;
+	margin-top: 4px;
+}
+
+.right-preview-area :deep(.submesh-preview-panel) {
+	min-width: 0;
+	min-height: 0;
+	height: 100%;
+}
+
+.preview-visibility-matrix {
+	min-height: 0;
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	grid-auto-rows: 29px;
+	align-content: start;
+	overflow-y: auto;
+	overflow-x: hidden;
+	border: 1px solid rgba(var(--theme-surface-tint-rgb), 0.2);
+	border-radius: 9px;
+	background: rgba(var(--theme-surface-tint-rgb), 0.045);
+	box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.018);
+	scrollbar-width: thin;
+	scrollbar-color: rgba(var(--theme-surface-tint-rgb), 0.32) transparent;
+}
+
+.preview-visibility-matrix button {
+	min-width: 0;
+	margin: 0;
+	border: 0;
+	border-right: 1px solid rgba(var(--theme-surface-tint-rgb), 0.14);
+	border-bottom: 1px solid rgba(var(--theme-surface-tint-rgb), 0.14);
+	color: rgba(237, 242, 252, 0.7);
+	background: transparent;
+	font-size: 10px;
+	font-weight: 800;
+	line-height: 1;
+	cursor: pointer;
+	transition: color 0.14s ease, background 0.14s ease;
+}
+
+.preview-visibility-solo {
+	border-right: 0 !important;
+}
+
+.preview-visibility-matrix button:hover:not(:disabled) {
+	color: rgba(255, 255, 255, 0.96);
+	background: rgba(var(--theme-surface-tint-rgb), 0.12);
+}
+
+.preview-visibility-matrix button.is-active {
+	color: rgba(184, 239, 255, 1);
+	background: rgba(var(--theme-surface-tint-rgb), 0.2);
+}
+
+.preview-visibility-matrix button.is-current {
+	box-shadow: inset 0 0 0 2px rgba(var(--theme-surface-tint-rgb), 0.68);
+}
+
+.preview-visibility-matrix button.needs-review {
+	color: rgba(255, 234, 234, 0.96);
+	background: rgba(239, 68, 68, 0.5);
+}
+
+.preview-visibility-matrix button.needs-review:hover:not(:disabled) {
+	background: rgba(239, 68, 68, 0.66);
+}
+
+.preview-visibility-matrix button:disabled {
+	color: rgba(232, 236, 245, 0.3);
+	cursor: default;
+}
+
+.preview-visibility-sync {
+	grid-column: 1 / -1;
+	border-right: 0 !important;
+	font-size: 16px !important;
 }
 
 .menu-stack > div,
@@ -3726,12 +3987,12 @@ watch(
 		grid-template-columns: 1fr;
 	}
 
-	.submesh-side-column {
-		grid-template-rows: minmax(180px, auto) minmax(560px, auto);
-	}
-
 	.submesh-drawer-list {
 		max-height: 360px;
+	}
+
+	.right-preview-area {
+		min-height: 460px;
 	}
 
 	.texture-editor-toolbar {

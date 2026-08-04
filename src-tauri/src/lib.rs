@@ -97,6 +97,7 @@ pub fn run() {
             commands::extract_model::extract_models_new,
             commands::extract_model::full_extract,
             commands::extract_model::analyze_draw_ib_submeshes,
+            commands::extract_model::regenerate_draw_ib_component_json,
             commands::vscheck::update_vscheck,
             commands::vscheck::generate_vscheck,
             commands::extract_textures::extract_deduped_textures,
