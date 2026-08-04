@@ -179,8 +179,9 @@ const API_BASE = 'https://gamebanana.com/apiv11';
 const PAGE_SIZE_OPTIONS = [12, 24, 36, 48];
 const GAMEBANANA_ICON_CACHE_FOLDER = 'gamebanana-category-icons';
 
-const gameId = ref(DEFAULT_GAMEBANANA_ID);
+const gameId = ref<number | null>(DEFAULT_GAMEBANANA_ID);
 const gameTargetLabel = ref('');
+const showGameIdInput = ref(false);
 const searchQuery = ref('');
 const pageSize = ref(24);
 const currentPage = ref(1);
@@ -263,7 +264,9 @@ const visibleMods = computed(() => appSettings.gamebananaNsfwMode === 'hide'
   : mods.value);
 const visibleCountText = computed(() => `${visibleMods.value.length}${appSettings.gamebananaNsfwMode === 'hide' && mods.value.length !== visibleMods.value.length ? ` / ${mods.value.length}` : ''}`);
 const currentGameName = computed(() => appSettings.CurrentGameName?.trim() || '');
-const gameUrl = computed(() => `https://gamebanana.com/games/${gameId.value}`);
+const gameUrl = computed(() => gameId.value && gameId.value > 0
+  ? `https://gamebanana.com/games/${gameId.value}`
+  : 'https://gamebanana.com/games');
 const isInstalling = computed(() => installingFileId.value !== null);
 
 const asString = (value: unknown): string => typeof value === 'string' ? value.trim() : '';
@@ -570,6 +573,7 @@ const loadCategoryChildren = async (node: GbCategoryNode) => {
 };
 
 const loadCategories = async () => {
+  if (!gameId.value || gameId.value <= 0) return;
   const requestId = ++categoriesRequestId;
   loadingCategories.value = true;
   try {
@@ -596,6 +600,7 @@ const loadCategories = async () => {
 };
 
 const loadMods = async (requestedPage = 1) => {
+  if (!gameId.value || gameId.value <= 0) return;
   const requestId = ++modsRequestId;
   loadingMods.value = true;
   errorMessage.value = '';
@@ -716,6 +721,15 @@ const selectMod = async (mod: GbModCard) => {
 const applyTarget = async () => {
   currentPage.value = 1;
   selectedCategoryId.value = null;
+  if (!gameId.value || gameId.value <= 0) {
+    categoryTree.value = [];
+    mods.value = [];
+    detail.value = null;
+    selectedModId.value = null;
+    totalRecords.value = 0;
+    hasMore.value = false;
+    return;
+  }
   await Promise.all([loadCategories(), loadMods(1)]);
 };
 
@@ -1512,6 +1526,8 @@ const syncGameTarget = async () => {
   const storedKey = `gamebanana:game-id:${gameName || 'default'}`;
   const storedId = Number(localStorage.getItem(storedKey));
   gameTargetLabel.value = gameName || t('gameBanana.noGameSelected');
+  showGameIdInput.value = true;
+  gameId.value = Number.isInteger(storedId) && storedId > 0 ? storedId : null;
 
   if (gameName && gameName !== 'Default') {
     try {
@@ -1520,22 +1536,21 @@ const syncGameTarget = async () => {
       const presetGameId = GAMEBANANA_ID_BY_PRESET[preset];
       if (presetGameId) {
         gameId.value = presetGameId;
+        showGameIdInput.value = false;
         gameTargetLabel.value = `${gameName} · ${preset}`;
-      } else if (Number.isInteger(storedId) && storedId > 0) {
-        gameId.value = storedId;
       }
     } catch (error) {
       console.warn('Unable to load the current game configuration for GameBanana:', error);
     }
-  } else if (Number.isInteger(storedId) && storedId > 0) {
-    gameId.value = storedId;
   }
 
   await applyTarget();
 };
 
 watch(gameId, (value) => {
-  const normalized = Math.max(1, Math.floor(Number(value) || DEFAULT_GAMEBANANA_ID));
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return;
+  const normalized = Math.floor(parsed);
   if (value !== normalized) {
     gameId.value = normalized;
     return;
@@ -1724,9 +1739,9 @@ onBeforeUnmount(() => {
       <button type="button" class="gb-button gb-button--primary" :disabled="loadingMods" @click="loadMods(1)">
         {{ loadingMods ? t('gameBanana.loading') : t('gameBanana.searchAction') }}
       </button>
-      <label class="gb-field gb-id-field">
+      <label v-if="showGameIdInput" class="gb-field gb-id-field">
         <span>{{ t('gameBanana.gameId') }}</span>
-        <input v-model.number="gameId" type="number" min="1" @keyup.enter="applyTarget" />
+        <input v-model.number="gameId" type="number" min="1" :placeholder="t('gameBanana.gameId')" @keyup.enter="applyTarget" />
       </label>
       <label class="gb-field gb-size-field">
         <span>{{ t('gameBanana.perPage') }}</span>

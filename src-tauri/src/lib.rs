@@ -83,6 +83,8 @@ pub fn run() {
             commands::mod_manager::install_mod_archive,
             commands::mod_manager::gamebanana_download_and_install_mod,
             commands::mod_manager::cancel_gamebanana_download_and_install_mod,
+            commands::mod_manager::nexusmods_download_and_install_mod,
+            commands::mod_manager::cancel_nexusmods_download_and_install_mod,
             commands::mod_manager::export_mod_archive,
             commands::mod_manager::scan_directory,
             commands::mod_manager::get_mod_key_list,
