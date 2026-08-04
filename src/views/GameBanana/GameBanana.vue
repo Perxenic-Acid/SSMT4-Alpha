@@ -1885,9 +1885,9 @@ onBeforeUnmount(() => {
 }
 
 .glass-panel {
-  background: linear-gradient(145deg, rgba(18, 21, 31, 0.76), rgba(9, 11, 17, 0.64));
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.16), inset 0 1px rgba(255, 255, 255, 0.05);
+  background: linear-gradient(145deg, rgba(var(--theme-surface-tint-rgb), 0.07), rgba(var(--theme-surface-tint-rgb), 0.025)), rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(var(--theme-surface-tint-rgb), 0.12);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.18), inset 0 0 0 1px rgba(var(--theme-surface-tint-rgb), 0.035);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
 }
@@ -1943,10 +1943,10 @@ onBeforeUnmount(() => {
   box-sizing: border-box;
   min-height: 30px;
   padding: 0 9px;
-  border: 1px solid rgba(255,255,255,0.12);
+  border: 1px solid rgba(var(--theme-surface-tint-rgb), 0.14);
   border-radius: 7px;
   outline: none;
-  background: rgba(0,0,0,0.2);
+  background: rgba(var(--theme-surface-tint-rgb), 0.055);
   color: rgba(var(--theme-text-primary-rgb), 0.92);
   font: inherit;
   font-size: 12px;
@@ -1958,7 +1958,7 @@ onBeforeUnmount(() => {
 .gb-field :deep(.el-select__selected-item),
 .gb-field :deep(.el-select__placeholder) { color: rgba(var(--theme-text-primary-rgb), .92); font-size: 12px; }
 .gb-nsfw-mode { flex: 0 0 auto; margin-bottom: 1px; }
-.gb-nsfw-mode :deep(.el-radio-button__inner) { padding: 7px 8px; border-color: rgba(255,255,255,.14); background: rgba(0,0,0,.16); color: rgba(var(--theme-text-primary-rgb),.7); font-size: 11px; box-shadow: none; }
+.gb-nsfw-mode :deep(.el-radio-button__inner) { padding: 7px 8px; border-color: rgba(var(--theme-surface-tint-rgb),.14); background: rgba(var(--theme-surface-tint-rgb),.045); color: rgba(var(--theme-text-primary-rgb),.7); font-size: 11px; box-shadow: none; }
 .gb-nsfw-mode :deep(.el-radio-button__original-radio:checked + .el-radio-button__inner) { background: rgba(var(--theme-surface-tint-rgb),.19); border-color: rgba(var(--theme-surface-tint-rgb),.48); color: rgba(var(--theme-text-primary-rgb),.95); box-shadow: -1px 0 0 0 rgba(var(--theme-surface-tint-rgb),.45); }
 
 .gb-translation-settings { display: grid; grid-template-columns: 1.15fr 1fr 1fr .8fr .8fr .8fr; align-items: end; gap: 9px; padding: 10px 12px 12px; border-radius: 12px; }
@@ -2072,6 +2072,8 @@ onBeforeUnmount(() => {
 .gb-mod-card:hover .gb-mod-thumb img { transform: scale(1.04); }
 .gb-mod-thumb.is-nsfw-blurred img { filter: blur(18px) saturate(.75); transform: scale(1.16); }
 .gb-mod-thumb.is-nsfw-blurred::after { content: 'NSFW'; position: absolute; inset: 0; z-index: 2; display: grid; place-items: center; background: rgba(8, 9, 14, .24); color: rgba(255,255,255,.9); font-size: 11px; letter-spacing: .16em; text-shadow: 0 1px 7px rgba(0,0,0,.95); }
+.gb-mod-thumb.is-nsfw-blurred:hover img { filter: none; transform: scale(1.04); }
+.gb-mod-thumb.is-nsfw-blurred:hover::after { opacity: 0; }
 .gb-nsfw-badge { position: absolute; top: 5px; right: 5px; padding: 2px 5px; border-radius: 4px; background: rgba(138, 27, 58, 0.84); color: #fff; font-size: 9px; font-weight: 800; letter-spacing: .06em; }
 .gb-mod-copy { min-width: 0; display: grid; align-content: start; gap: 2px; }
 .gb-mod-copy strong { overflow: hidden; color: rgba(var(--theme-text-primary-rgb), 0.9); font-size: 13px; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
@@ -2093,6 +2095,8 @@ onBeforeUnmount(() => {
 .gb-screenshots button:hover img { transform: scale(1.05); }
 .gb-screenshots button.is-nsfw-blurred img { filter: blur(18px) saturate(.75); transform: scale(1.16); }
 .gb-screenshots button.is-nsfw-blurred::after { content: 'NSFW'; position: absolute; inset: 0; z-index: 1; display: grid; place-items: center; background: rgba(8,9,14,.26); color: rgba(255,255,255,.9); font-size: 10px; font-weight: 800; letter-spacing: .14em; text-shadow: 0 1px 6px rgba(0,0,0,.9); }
+.gb-screenshots button.is-nsfw-blurred:hover img { filter: none; transform: scale(1.05); }
+.gb-screenshots button.is-nsfw-blurred:hover::after { opacity: 0; }
 .gb-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .gb-stats span { display: grid; gap: 3px; padding: 7px; border-radius: 6px; background: rgba(255,255,255,0.045); color: rgba(var(--theme-text-secondary-rgb), 0.6); font-size: 10px; }
 .gb-stats strong { color: rgba(var(--theme-text-primary-rgb), 0.9); font-size: 13px; }

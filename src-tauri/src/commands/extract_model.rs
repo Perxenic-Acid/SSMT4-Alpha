@@ -7,6 +7,7 @@ use crate::common::frame_analysis::frameanalysis::FrameAnalysis;
 use crate::common::index_buffer_txt_file::IndexBufferTxtFile;
 use crate::constants::gametype::ExtractTechnique;
 use crate::extract_new::extract_services::{ExtractNewService, FullExtractDataTypeFilter};
+use crate::helper::mark_texture_helper::MarkTextureHelper;
 
 fn resolve_lod_workspace_path(workspace_root_path: &str, lod_name: &str) -> Result<String, String> {
     let trimmed_workspace_root_path = workspace_root_path.trim();
@@ -23,6 +24,35 @@ fn resolve_lod_workspace_path(workspace_root_path: &str, lod_name: &str) -> Resu
         .join(trimmed_lod_name)
         .to_string_lossy()
         .to_string())
+}
+
+/// Rebuild the derived component map from the extracted folders already on disk.
+/// This deliberately does not consult Import.json: that file is Blender's
+/// selected-data-type state, not the set of extracted/importable components.
+#[tauri::command]
+pub fn regenerate_draw_ib_component_json(lod_workspace_path: String) -> Result<(), String> {
+    let lod_workspace_path = lod_workspace_path.trim();
+    if lod_workspace_path.is_empty() {
+        return Err("lod_workspace_path is empty".to_string());
+    }
+
+    let lod_path = PathBuf::from(lod_workspace_path);
+    if !lod_path.is_dir() {
+        return Err(format!(
+            "LOD workspace path does not exist: {}",
+            lod_workspace_path
+        ));
+    }
+
+    let repaired_count = MarkTextureHelper::reset_gimi_vertex_ranges_for_import(lod_workspace_path)?;
+    if repaired_count > 0 {
+        println!(
+            "Restored {} GIMI submesh JSON files to full-buffer import semantics",
+            repaired_count
+        );
+    }
+    MarkTextureHelper::generate_draw_ib_component_json(lod_workspace_path);
+    Ok(())
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
