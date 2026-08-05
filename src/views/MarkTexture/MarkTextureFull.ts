@@ -16,6 +16,7 @@ export type TextureItemForApply = {
 type TrianglelistDedupedTextureProperty = {
 	FALogDedupedFileName?: string
 	FADataDedupedFileName?: string
+	Format?: string
 }
 
 type TrianglelistDedupedFileNameJson = Record<string, TrianglelistDedupedTextureProperty>

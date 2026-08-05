@@ -167,6 +167,7 @@ export class AppSettings {
 	gamebananaTranslationModel: string = 'gpt-4o-mini'
 	gamebananaTranslationTargetLanguage: string = '简体中文'
 	gamebananaTranslationShortcut: string = 'Ctrl'
+	showWindowShortcutEnabled: boolean = true
 	// Nexus Mods uses a per-user API key and a game URL-domain (for example,
 	// "skyrimspecialedition"), rather than GameBanana's numeric game ID.
 	nexusModsApiKey: string = ''
@@ -225,6 +226,7 @@ export class AppSettings {
 		this.gamebananaTranslationShortcut = !savedTranslationShortcut || savedTranslationShortcut.toLowerCase() === 'ctrl+shift+t'
 			? 'Ctrl'
 			: savedTranslationShortcut
+		this.showWindowShortcutEnabled = init?.showWindowShortcutEnabled ?? this.showWindowShortcutEnabled
 		this.nexusModsApiKey = init?.nexusModsApiKey ?? this.nexusModsApiKey
 		this.nexusModsGameDomain = init?.nexusModsGameDomain?.trim().toLowerCase() ?? this.nexusModsGameDomain
 		// VersionNumber is always controlled by current app code version,
@@ -285,6 +287,7 @@ export class AppSettings {
 			gamebananaTranslationModel: this.gamebananaTranslationModel,
 			gamebananaTranslationTargetLanguage: this.gamebananaTranslationTargetLanguage,
 			gamebananaTranslationShortcut: this.gamebananaTranslationShortcut,
+			showWindowShortcutEnabled: this.showWindowShortcutEnabled,
 			nexusModsApiKey: this.nexusModsApiKey,
 			nexusModsGameDomain: this.nexusModsGameDomain,
 		}

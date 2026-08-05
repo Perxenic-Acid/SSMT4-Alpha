@@ -62,6 +62,7 @@ type TextureItem = {
 	render: boolean;
 	suffix: string;
 	size: string;
+	format?: string;
 	preview: string;
 	channelPreviews: TextureChannelPreview[];
 	markName: string;
@@ -108,6 +109,7 @@ type SubMeshDrawerItem = {
 type TrianglelistDedupedTextureProperty = {
 	FALogDedupedFileName?: string;
 	FADataDedupedFileName?: string;
+	Format?: string;
 };
 
 type TrianglelistDedupedFileNameJson = Record<string, TrianglelistDedupedTextureProperty>;
@@ -1730,6 +1732,7 @@ const loadTextureListByDrawCall = async (drawCallSelectionValue: string) => {
 					render,
 					suffix: getTextureSuffixFromFileName(textureFileName),
 					size,
+					format: textureProperty?.Format,
 					preview,
 					channelPreviews,
 					markName: '',
@@ -2570,7 +2573,7 @@ watch(
 
 									<div class="meta-row">
 										<span class="label">{{ t('markTexture.ui.slotSize') }}</span>
-										<span class="value">{{ item.slot }} / {{ item.size }} / {{ t('markTexture.ui.render') }}: {{ item.render }}</span>
+										<span class="value">{{ item.slot }} / {{ item.format || '-' }} / {{ item.size }} / {{ t('markTexture.ui.render') }}: {{ item.render }}</span>
 									</div>
 
 									<div class="meta-row select-row">

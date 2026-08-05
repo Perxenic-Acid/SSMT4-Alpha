@@ -257,6 +257,7 @@
     "hints": {
       "cacheFolder": "Used for workspaces, generated files, and local cache data.",
       "githubToken": "Optional. A personal token raises the GitHub API rate limit for update checks.",
+      "showWindowShortcut": "Press Alt+F to bring SSMT to the front; press it again while focused to minimize the window.",
       "language": "Changes the interface language immediately.",
       "textureMarkStyle": "Used as the default when starting a new texture marking task."
     },
@@ -271,6 +272,7 @@
     },
     "general": {
       "githubToken": "GitHub Token",
+      "showWindowShortcut": "Alt+F Show Window Shortcut",
       "githubTokenPlaceholder": "Optional personal access token",
       "includePrereleaseUpdates": "Include Pre-release Updates",
       "includePrereleaseUpdatesHint": "When enabled, d3d11.dll and 3Dmigoto package update checks will also include GitHub pre-releases.",
