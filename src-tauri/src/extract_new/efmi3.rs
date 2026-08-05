@@ -867,8 +867,11 @@ impl EFMI3FullNewExtractor {
                 trianglelist_deduped_map.insert(
                     trianglelist_texture_file_name,
                     TrianglelistDedupedTextureProperty {
-                        fa_log_deduped_file_name: fa_log_deduped_filename,
+                        fa_log_deduped_file_name: fa_log_deduped_filename.clone(),
                         fa_data_deduped_file_name: fa_data_deduped_filename,
+                        format: SSMTStringUtils::extract_texture_format_from_deduped_file_name(
+                            &fa_log_deduped_filename,
+                        ),
                     },
                 );
             }
