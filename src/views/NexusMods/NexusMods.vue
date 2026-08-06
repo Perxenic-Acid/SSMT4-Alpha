@@ -699,7 +699,7 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.nexusmods-page { height:100%; min-height:0; box-sizing:border-box; display:flex; flex-direction:column; gap:12px; overflow:hidden; padding:46px 18px 18px; color:rgba(var(--theme-text-primary-rgb),.9); background: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.055) 1px, transparent 0) 0 0 / 24px 24px, rgba(2,4,8,0.5); }
+.nexusmods-page { height:100%; min-height:0; box-sizing:border-box; display:flex; flex-direction:column; gap:12px; overflow:hidden; padding:46px 18px 18px; color:rgba(var(--theme-text-primary-rgb),.9); }
 .glass-panel { background:linear-gradient(145deg,rgba(var(--theme-surface-tint-rgb),.07),rgba(var(--theme-surface-tint-rgb),.025)),rgba(255,255,255,.035); border:1px solid rgba(var(--theme-surface-tint-rgb),.12); box-shadow:0 14px 36px rgba(0,0,0,.18),inset 0 0 0 1px rgba(var(--theme-surface-tint-rgb),.035); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); }
 .nexus-controls { display:flex; align-items:end; gap:10px; padding:10px 12px; border-radius:12px; }.nexus-title-block { display:grid; flex:0 0 auto; min-width:112px; gap:2px; }.nexus-title-block strong { color:rgba(var(--theme-text-primary-rgb),.94); font-size:16px; }.nexus-title-block span { color:rgba(var(--theme-text-secondary-rgb),.6); font-size:10px; }
 .nexus-field { display:grid; min-width:90px; gap:4px; }.nexus-field>span { color:rgba(var(--theme-text-secondary-rgb),.64); font-size:10px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; }.nexus-domain-field { width:155px; }.nexus-key-field { flex:1 1 230px; min-width:180px; }.nexus-feed-field { width:112px; }.nexus-adult-field { min-width:188px; }

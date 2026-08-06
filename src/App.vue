@@ -13,6 +13,8 @@ const shouldShowGlobalDimLayer = computed(() => (
   || route.path === '/mods'
   || route.path === '/work'
   || route.path === '/mark-texture-full'
+  || route.path.startsWith('/gamebanana')
+  || route.path.startsWith('/nexusmods')
 ));
 
 const mainContentStyle = computed(() => {

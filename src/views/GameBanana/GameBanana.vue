@@ -2071,9 +2071,6 @@ onBeforeUnmount(() => {
   overflow: hidden;
   padding: 46px 18px 18px;
   color: rgba(var(--theme-text-primary-rgb), 0.9);
-  background:
-    radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.055) 1px, transparent 0) 0 0 / 24px 24px,
-    rgba(2, 4, 8, 0.5);
 }
 
 .glass-panel {
