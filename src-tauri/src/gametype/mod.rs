@@ -12,7 +12,6 @@ pub mod type_gf2;
 pub mod type_gimi;
 pub mod type_himi;
 pub mod type_hok;
-pub mod type_identityv;
 pub mod type_identityv2;
 pub mod type_miside;
 pub mod type_naraka;
