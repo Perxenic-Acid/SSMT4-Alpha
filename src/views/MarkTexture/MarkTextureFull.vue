@@ -208,6 +208,7 @@ let lastValidDrawCallSelection = '';
 const RGBA_PREVIEW_CARD_MIN_SIZE = 220;
 const RGBA_PREVIEW_CARD_INITIAL_RATIO = 0.6;
 const RGBA_PREVIEW_CARD_VIEWPORT_MARGIN = 32;
+const RGBA_PREVIEW_MODAL_HEADER_HEIGHT = 44;
 const RGBA_PREVIEW_RENDER_MAX_DIMENSION = 1024;
 const channelPreviewCanvases = new Map<TextureChannelKey, HTMLCanvasElement>();
 
@@ -240,7 +241,10 @@ const getRgbaPreviewCardMaxSize = (): number => {
 
 	return Math.max(
 		RGBA_PREVIEW_CARD_MIN_SIZE,
-		Math.min(window.innerWidth, window.innerHeight) - RGBA_PREVIEW_CARD_VIEWPORT_MARGIN
+		Math.min(
+			window.innerWidth - RGBA_PREVIEW_CARD_VIEWPORT_MARGIN,
+			window.innerHeight - RGBA_PREVIEW_CARD_VIEWPORT_MARGIN - RGBA_PREVIEW_MODAL_HEADER_HEIGHT
+		)
 	);
 };
 
@@ -272,7 +276,7 @@ const rgbaPreviewCardStyle = computed(() => {
 	ensureRgbaPreviewCardSize();
 	return {
 		width: `${rgbaPreviewCardSize.value}px`,
-		height: `${rgbaPreviewCardSize.value}px`,
+		height: `${rgbaPreviewCardSize.value + RGBA_PREVIEW_MODAL_HEADER_HEIGHT}px`,
 	};
 });
 
@@ -3450,9 +3454,9 @@ watch(activeChannelPreviewItem, (item) => {
 	align-items: center;
 	justify-content: center;
 	padding: 16px;
-	background: rgba(5, 9, 16, 0.66);
-	backdrop-filter: blur(10px);
-	-webkit-backdrop-filter: blur(10px);
+	background: rgba(5, 9, 16, 0.42);
+	backdrop-filter: blur(6px);
+	-webkit-backdrop-filter: blur(6px);
 }
 
 .channel-preview-modal {
@@ -3462,12 +3466,12 @@ watch(activeChannelPreviewItem, (item) => {
 	overflow: hidden;
 	display: flex;
 	flex-direction: column;
-	border: var(--t-material-border);
-	border-radius: 10px;
-	background: var(--t-material-bg);
-	box-shadow: var(--t-material-shadow);
-	backdrop-filter: blur(16px) saturate(1.2);
-	-webkit-backdrop-filter: blur(16px) saturate(1.2);
+	border: var(--t-card-dark-border);
+	border-radius: 14px;
+	background: var(--t-card-dark-bg);
+	box-shadow: var(--t-card-dark-shadow);
+	backdrop-filter: blur(12px) saturate(1.15);
+	-webkit-backdrop-filter: blur(12px) saturate(1.15);
 	user-select: none;
 }
 
@@ -3478,8 +3482,8 @@ watch(activeChannelPreviewItem, (item) => {
 	gap: 12px;
 	min-height: 44px;
 	padding: 0 10px 0 14px;
-	border-bottom: 1px solid rgba(var(--theme-surface-tint-rgb), 0.14);
-	background: rgba(var(--theme-surface-tint-rgb), 0.055);
+	border-bottom: 1px solid rgba(var(--theme-surface-tint-rgb), 0.12);
+	background: rgba(var(--theme-surface-tint-rgb), 0.035);
 }
 
 .channel-preview-modal-header h3 {
@@ -3521,8 +3525,9 @@ watch(activeChannelPreviewItem, (item) => {
 	grid-template-columns: repeat(2, minmax(0, 1fr));
 	grid-template-rows: repeat(2, minmax(0, 1fr));
 	gap: 8px;
-	min-height: 0;
-	flex: 1 1 auto;
+	aspect-ratio: 1 / 1;
+	box-sizing: border-box;
+	flex: 0 0 auto;
 	width: 100%;
 	padding: 10px;
 	position: relative;
@@ -3531,8 +3536,14 @@ watch(activeChannelPreviewItem, (item) => {
 
 .channel-modal-card {
 	position: relative;
-	width: 100%;
-	height: 100%;
+	min-width: 0;
+	min-height: 0;
+	aspect-ratio: 1 / 1;
+	overflow: hidden;
+	border: 1px solid rgba(var(--theme-surface-tint-rgb), 0.12);
+	border-radius: 8px;
+	background: rgba(0, 0, 0, 0.14);
+	box-shadow: inset 0 0 0 1px rgba(var(--theme-surface-tint-rgb), 0.025);
 }
 
 .channel-modal-card-label {
@@ -3554,15 +3565,8 @@ watch(activeChannelPreviewItem, (item) => {
 }
 
 .channel-modal-card-preview {
-	width: 100%;
-	height: 100%;
-	border-radius: 6px;
-	overflow: hidden;
-	border: 1px solid rgba(var(--theme-surface-tint-rgb), 0.10);
-	background:
-		linear-gradient(135deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.01)),
-		linear-gradient(135deg, rgba(var(--theme-surface-tint-rgb), 0.07), rgba(10, 12, 18, 0.72));
-	box-shadow: inset 0 0 0 1px rgba(var(--theme-surface-tint-rgb), 0.025);
+	position: absolute;
+	inset: 0;
 }
 
 .channel-preview-resize-handle {
@@ -3586,12 +3590,11 @@ watch(activeChannelPreviewItem, (item) => {
 }
 
 .channel-modal-card-preview canvas {
+	position: absolute;
+	inset: 0;
 	width: 100%;
 	height: 100%;
-	object-fit: contain;
 	display: block;
-	background: rgba(0, 0, 0, 0.18);
-	transition: opacity 0.18s ease;
 }
 
 .preview-wrap {
