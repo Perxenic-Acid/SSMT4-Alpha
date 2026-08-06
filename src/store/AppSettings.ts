@@ -156,7 +156,6 @@ export class AppSettings {
 	CurrentWorkSpace: string = 'Default'
 	CurrentWorkSpaceByGame: Record<string, string> = {}
 	sidebarGameOrder: string[] = []
-	convertRgbaChannelTextures: boolean = true
 	modsManagementBlurNsfw: boolean = true
 	gamebananaNsfwMode: GameBananaNsfwMode = 'blur'
 	gamebananaTranslationEnabled: boolean = true
@@ -212,7 +211,6 @@ export class AppSettings {
 		this.CurrentWorkSpace = init?.CurrentWorkSpace ?? this.CurrentWorkSpace
 		this.CurrentWorkSpaceByGame = normalizeWorkspaceByGame(init?.CurrentWorkSpaceByGame)
 		this.sidebarGameOrder = normalizeSidebarGameOrder(init?.sidebarGameOrder)
-		this.convertRgbaChannelTextures = init?.convertRgbaChannelTextures ?? this.convertRgbaChannelTextures
 		this.modsManagementBlurNsfw = init?.modsManagementBlurNsfw ?? this.modsManagementBlurNsfw
 		this.gamebananaNsfwMode = normalizeGameBananaNsfwMode(init?.gamebananaNsfwMode)
 		this.gamebananaTranslationEnabled = init?.gamebananaTranslationEnabled ?? this.gamebananaTranslationEnabled
@@ -276,7 +274,6 @@ export class AppSettings {
 			CurrentWorkSpace: this.CurrentWorkSpace,
 			CurrentWorkSpaceByGame: this.CurrentWorkSpaceByGame,
 			sidebarGameOrder: this.sidebarGameOrder,
-			convertRgbaChannelTextures: this.convertRgbaChannelTextures,
 			modsManagementBlurNsfw: this.modsManagementBlurNsfw,
 			gamebananaNsfwMode: this.gamebananaNsfwMode,
 			gamebananaTranslationEnabled: this.gamebananaTranslationEnabled,

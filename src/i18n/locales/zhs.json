@@ -631,7 +631,6 @@
       "selectFolder": "选择文件夹",
       "open": "打开",
       "extractModels": "提取模型",
-      "convertRgbaChannelTextures": "转换 RGBA 通道贴图",
       "fullExtractDataTypeFilter": "数据类型",
       "fullExtractAllDataTypes": "所有数据类型",
       "fullExtractGpuPreSkinningOnly": "仅 GPU-PreSkinning 数据类型",
@@ -795,7 +794,8 @@
   "markTexture": {
     "common": {
       "confirm": "确认",
-      "cancel": "取消"
+      "cancel": "取消",
+      "close": "关闭"
     },
     "dialog": {
       "deleteCurrentTextureConfigTitle": "确认删除贴图配置",
@@ -837,8 +837,7 @@
       "pbr": "PBR",
       "unlit": "自发光（低性能开销）",
       "normalDisplacement": "法线置换强度",
-      "primaryDataType": "首位数据类型",
-      "setPrimaryDataType": "设为首位",
+      "deleteOtherDataTypes": "删除其他数据类型",
       "deleteDataType": "删除数据类型",
       "frame": "重置视角",
       "selectSubMesh": "请选择 SubMesh",
@@ -851,8 +850,9 @@
       "previewLimited": "为保持流畅，预览已限制为前 {count} 个索引。",
       "skippedInvalidTriangles": "已跳过 {count} 个无法解析的三角形。",
       "vertexTriangleCount": "{vertices} 个顶点 · {triangles} 个三角形",
-      "primaryDataTypeSet": "已将当前数据类型设为首位",
-      "primaryDataTypeSetFailed": "设定首位数据类型失败",
+      "confirmDeleteOtherDataTypes": "保留当前数据类型“{name}”，并将其余 {count} 个数据类型移至回收站。相关提取结果将不再参与后续处理。是否继续？",
+      "otherDataTypesDeleted": "已将其他数据类型移至回收站",
+      "otherDataTypesDeleteFailed": "部分其他数据类型删除失败",
       "confirmDeleteDataType": "将当前 SubMesh 的数据类型“{name}”移至回收站，相关提取结果将不再参与后续处理。是否继续？",
       "dataTypeDeleted": "已将数据类型移至回收站",
       "dataTypeDeleteFailed": "删除数据类型失败"

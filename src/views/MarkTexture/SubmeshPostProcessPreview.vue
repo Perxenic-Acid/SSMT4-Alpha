@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue';
 import { join } from '@tauri-apps/api/path';
-import { exists, readDir, readFile, readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
+import { exists, readDir, readFile, readTextFile } from '@tauri-apps/plugin-fs';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useI18n } from 'vue-i18n';
 import * as THREE from 'three';
@@ -50,10 +50,6 @@ type SubMeshJson = {
 	CategoryBufferList?: SubMeshCategoryBuffer[];
 };
 
-type DataTypeConfig = {
-	primaryDataTypeFolder?: string;
-};
-
 type LightingMode = 'half-lambert' | 'unlit' | 'pbr';
 
 type ElementSource = {
@@ -92,7 +88,6 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 
-const DATA_TYPE_CONFIG_FILE_NAME = 'PostProcessDataTypeConfig.json';
 const MAX_PREVIEW_INDEX_COUNT = 600_000;
 const PREVIEW_LIGHTING_MODE_STORAGE_KEY = 'ssmt4:post-processing-preview:lighting-mode';
 // Preview-space coordinates are metres.  Values beyond this threshold usually
@@ -120,7 +115,6 @@ const normalStrength = ref(1);
 const isLoading = ref(false);
 const isBuildingPreview = ref(false);
 const previewError = ref('');
-const primaryDataTypeFolder = ref('');
 const previewStatus = ref('');
 const previewSettingsOpen = ref(false);
 const previewZoomOpen = ref(false);
@@ -170,16 +164,12 @@ const selectedNormal = computed(() => {
 
 const hasPreviewTarget = computed(() => !!props.workspacePath && !!props.subMeshName);
 
-const isCurrentDataTypePrimary = computed(() => {
-	return !!activeDataType.value && activeDataType.value.id === primaryDataTypeFolder.value;
-});
-
 const selectedDataTypeLabel = computed(() => {
 	const dataType = activeDataType.value;
 	if (!dataType) {
 		return t('markTexture.preview.noDataTypes');
 	}
-	return dataType.id === primaryDataTypeFolder.value ? `★ ${dataType.name}` : dataType.name;
+	return dataType.name;
 });
 
 const selectedUvLayerLabel = computed(() => {
@@ -325,37 +315,11 @@ const getSubMeshRootPath = async (
 	return join(workspacePath, subMeshName);
 };
 
-const getDataTypeConfigPath = async (): Promise<string | undefined> => {
-	const rootPath = await getSubMeshRootPath();
-	return rootPath ? join(rootPath, DATA_TYPE_CONFIG_FILE_NAME) : undefined;
-};
-
-const loadDataTypeConfig = async (): Promise<DataTypeConfig> => {
-	try {
-		const configPath = await getDataTypeConfigPath();
-		if (!configPath || !(await exists(configPath))) {
-			return {};
-		}
-		const parsed = JSON.parse(await readTextFile(configPath)) as DataTypeConfig;
-		return typeof parsed.primaryDataTypeFolder === 'string' ? parsed : {};
-	} catch {
-		return {};
-	}
-};
-
-const sortDataTypes = (items: DataTypeItem[], primaryId: string): DataTypeItem[] => {
-	return [...items].sort((left, right) => {
-		if (left.id === primaryId) return -1;
-		if (right.id === primaryId) return 1;
-		return left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: 'base' });
-	});
-};
-
 const loadDataTypeItem = async (rootPath: string, folderName: string): Promise<DataTypeItem | undefined> => {
 	try {
 		const folderPath = await join(rootPath, folderName);
 		const folderEntries = await readDir(folderPath);
-		const jsonEntry = folderEntries.find(item => !item.isDirectory && item.name?.endsWith('.json') && item.name !== DATA_TYPE_CONFIG_FILE_NAME);
+		const jsonEntry = folderEntries.find(item => !item.isDirectory && item.name?.endsWith('.json'));
 		if (!jsonEntry?.name) {
 			return undefined;
 		}
@@ -387,26 +351,10 @@ const loadDefaultDataTypeForTarget = async (
 	if (!rootPath || !(await exists(rootPath))) {
 		return undefined;
 	}
-	const [entries, configPath] = await Promise.all([
-		readDir(rootPath),
-		join(rootPath, DATA_TYPE_CONFIG_FILE_NAME),
-	]);
-	let primaryDataTypeFolder = '';
-	if (await exists(configPath)) {
-		try {
-			primaryDataTypeFolder = (JSON.parse(await readTextFile(configPath)) as DataTypeConfig).primaryDataTypeFolder || '';
-		} catch {
-			// The first usable data type remains a valid fallback.
-		}
-	}
-	const folderNames = entries
+	const folderNames = (await readDir(rootPath))
 		.filter(entry => entry.isDirectory && entry.name?.startsWith('TYPE_') && entry.name)
 		.map(entry => entry.name!)
-		.sort((left, right) => {
-			if (left === primaryDataTypeFolder) return -1;
-			if (right === primaryDataTypeFolder) return 1;
-			return left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' });
-		});
+		.sort((left, right) => left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' }));
 	for (const folderName of folderNames) {
 		const dataType = await loadDataTypeItem(rootPath, folderName);
 		if (dataType) {
@@ -441,7 +389,7 @@ const loadDataTypes = async () => {
 			return;
 		}
 
-		const [entries, config] = await Promise.all([readDir(rootPath), loadDataTypeConfig()]);
+		const entries = await readDir(rootPath);
 		const candidates = entries.filter(entry => entry.isDirectory && entry.name?.startsWith('TYPE_') && entry.name);
 		const loadedItems = await Promise.all(candidates.map(entry => loadDataTypeItem(rootPath, entry.name!)));
 
@@ -449,11 +397,9 @@ const loadDataTypes = async () => {
 			return;
 		}
 
-		const nextItems = loadedItems.filter((item): item is DataTypeItem => !!item);
-		primaryDataTypeFolder.value = nextItems.some(item => item.id === config.primaryDataTypeFolder)
-			? config.primaryDataTypeFolder || ''
-			: '';
-		dataTypes.value = sortDataTypes(nextItems, primaryDataTypeFolder.value);
+		dataTypes.value = loadedItems
+			.filter((item): item is DataTypeItem => !!item)
+			.sort((left, right) => left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: 'base' }));
 
 		if (!dataTypes.value.some(item => item.id === selectedDataTypeId.value)) {
 			selectedDataTypeId.value = dataTypes.value[0]?.id ?? '';
@@ -1630,25 +1576,38 @@ const rebuildPreview = async () => {
 	}
 };
 
-const setCurrentDataTypePrimary = async () => {
-	const dataType = activeDataType.value;
-	if (!dataType || isCurrentDataTypePrimary.value) {
+const deleteOtherDataTypes = async () => {
+	const retainedDataType = activeDataType.value;
+	const otherDataTypes = dataTypes.value.filter(item => item.id !== retainedDataType?.id);
+	if (!retainedDataType || otherDataTypes.length === 0) {
 		return;
 	}
 	try {
-		const configPath = await getDataTypeConfigPath();
-		if (!configPath) {
-			return;
-		}
-		await writeTextFile(configPath, JSON.stringify({ primaryDataTypeFolder: dataType.id } satisfies DataTypeConfig, null, 2));
-		primaryDataTypeFolder.value = dataType.id;
-		dataTypes.value = sortDataTypes(dataTypes.value, dataType.id);
-		ElMessage.success(t('markTexture.preview.primaryDataTypeSet'));
-		emit('data-type-changed');
-	} catch (error) {
-		console.error('Failed to set primary data type', error);
-		ElMessage.error(t('markTexture.preview.primaryDataTypeSetFailed'));
+		await ElMessageBox.confirm(
+			t('markTexture.preview.confirmDeleteOtherDataTypes', { name: retainedDataType.name, count: otherDataTypes.length }),
+			t('markTexture.preview.deleteOtherDataTypes'),
+			{
+				confirmButtonText: t('markTexture.common.confirm'),
+				cancelButtonText: t('markTexture.common.cancel'),
+				type: 'warning',
+			}
+		);
+	} catch {
+		return;
 	}
+
+	const deletionResults = await Promise.allSettled(otherDataTypes.map(item => moveDirectoryToRecycleBin(item.folderPath)));
+	const failedDeletions = deletionResults.filter(result => result.status === 'rejected');
+	if (failedDeletions.length > 0) {
+		console.error('Failed to delete some other data types', failedDeletions);
+	}
+	await loadDataTypes();
+	emit('data-type-changed');
+	if (failedDeletions.length > 0) {
+		ElMessage.error(t('markTexture.preview.otherDataTypesDeleteFailed'));
+		return;
+	}
+	ElMessage.success(t('markTexture.preview.otherDataTypesDeleted'));
 };
 
 const deleteCurrentDataType = async () => {
@@ -1672,9 +1631,6 @@ const deleteCurrentDataType = async () => {
 
 	try {
 		await moveDirectoryToRecycleBin(dataType.folderPath);
-		if (primaryDataTypeFolder.value === dataType.id) {
-			primaryDataTypeFolder.value = '';
-		}
 		selectedDataTypeId.value = '';
 		selectedUvLayerId.value = '';
 		await loadDataTypes();
@@ -1841,7 +1797,7 @@ onDeactivated(() => {
 						<el-option
 							v-for="dataType in dataTypes"
 							:key="dataType.id"
-							:label="dataType.id === primaryDataTypeFolder ? `★ ${dataType.name}` : dataType.name"
+							:label="dataType.name"
 							:value="dataType.id"
 						/>
 					</el-select>
@@ -1860,8 +1816,8 @@ onDeactivated(() => {
 		</div>
 
 		<div class="preview-actions">
-			<el-button size="small" :disabled="!activeDataType || isCurrentDataTypePrimary" @click="setCurrentDataTypePrimary">
-				{{ isCurrentDataTypePrimary ? t('markTexture.preview.primaryDataType') : t('markTexture.preview.setPrimaryDataType') }}
+			<el-button size="small" type="warning" plain :disabled="!activeDataType || dataTypes.length < 2" @click="deleteOtherDataTypes">
+				{{ t('markTexture.preview.deleteOtherDataTypes') }}
 			</el-button>
 			<el-button size="small" type="danger" plain :disabled="!activeDataType" @click="deleteCurrentDataType">
 				{{ t('markTexture.preview.deleteDataType') }}
