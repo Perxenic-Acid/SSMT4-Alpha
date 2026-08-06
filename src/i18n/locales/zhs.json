@@ -631,7 +631,6 @@
       "selectFolder": "选择文件夹",
       "open": "打开",
       "extractModels": "提取模型",
-      "convertRgbaChannelTextures": "转换 RGBA 通道贴图",
       "fullExtractDataTypeFilter": "数据类型",
       "fullExtractAllDataTypes": "所有数据类型",
       "fullExtractGpuPreSkinningOnly": "仅 GPU-PreSkinning 数据类型",
@@ -795,7 +794,8 @@
   "markTexture": {
     "common": {
       "confirm": "确认",
-      "cancel": "取消"
+      "cancel": "取消",
+      "close": "关闭"
     },
     "dialog": {
       "deleteCurrentTextureConfigTitle": "确认删除贴图配置",

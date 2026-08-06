@@ -1,12 +1,12 @@
 ﻿<script setup lang="ts">
-import { computed, onActivated, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onActivated, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { dirname, join } from '@tauri-apps/api/path';
-import { exists, mkdir, readDir, readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
+import { exists, mkdir, readDir, readFile, readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
 import { openPath as openExternal, revealItemInDir } from '@tauri-apps/plugin-opener';
 import { moveFileToRecycleBin } from '../../utils/RecycleBin';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { Delete, Grid, View } from '@element-plus/icons-vue';
+import { Close, Delete, Grid, View } from '@element-plus/icons-vue';
 import { useI18n } from 'vue-i18n';
 import { AppStateManager } from '../../store/AppStateManager';
 import { GlobalConfig } from '../../store/GlobalConfig';
@@ -50,7 +50,6 @@ type TextureChannelKey = 'R' | 'G' | 'B' | 'A';
 type TextureChannelPreview = {
 	key: TextureChannelKey;
 	label: TextureChannelKey;
-	preview: string;
 };
 
 type TextureItem = {
@@ -64,6 +63,7 @@ type TextureItem = {
 	size: string;
 	format?: string;
 	preview: string;
+	previewPath: string;
 	channelPreviews: TextureChannelPreview[];
 	markName: string;
 	markStyle: MarkStyle;
@@ -199,6 +199,7 @@ let textureMemorySaveTimer: ReturnType<typeof setTimeout> | undefined;
 let selectionMemorySaveTimer: ReturnType<typeof setTimeout> | undefined;
 let workspaceUiConfigSaveTimer: ReturnType<typeof setTimeout> | undefined;
 let rgbaPreviewResizeCleanup: (() => void) | undefined;
+let channelPreviewRenderToken = 0;
 let textureListLoadToken = 0;
 let markedTexturePreviewCacheSeed = 0;
 let lastValidSubMeshSelection = '';
@@ -207,6 +208,8 @@ let lastValidDrawCallSelection = '';
 const RGBA_PREVIEW_CARD_MIN_SIZE = 220;
 const RGBA_PREVIEW_CARD_INITIAL_RATIO = 0.6;
 const RGBA_PREVIEW_CARD_VIEWPORT_MARGIN = 32;
+const RGBA_PREVIEW_RENDER_MAX_DIMENSION = 1024;
+const channelPreviewCanvases = new Map<TextureChannelKey, HTMLCanvasElement>();
 
 const currentGameName = computed(() => appSettings.CurrentGameName || 'Default');
 
@@ -1077,23 +1080,30 @@ const buildTexturePreviewUrl = async (
 	fileName: string,
 	cacheBustToken: number
 ): Promise<string> => {
+	const filePath = await findTexturePreviewPath(workspacePath, fileName);
+	return filePath ? `${convertFileSrc(filePath)}?t=${cacheBustToken}` : '';
+};
+
+const findTexturePreviewPath = async (workspacePath: string, fileName: string): Promise<string> => {
 	if (!fileName) {
 		return '';
 	}
 
-	const filePath = await join(workspacePath, 'DedupedTextures_jpg', fileName);
-	if (!(await exists(filePath))) {
-		return '';
+	const fileBaseName = fileName.replace(/\.(?:jpg|png)$/i, '');
+	for (const candidateFileName of [`${fileBaseName}.png`, `${fileBaseName}.jpg`]) {
+		const filePath = await join(workspacePath, 'DedupedTextures_jpg', candidateFileName);
+		if (await exists(filePath)) {
+			return filePath;
+		}
 	}
 
-	return `${convertFileSrc(filePath)}?t=${cacheBustToken}`;
+	return '';
 };
 
 const createEmptyChannelPreviews = (): TextureChannelPreview[] => {
 	return textureChannelKeys.map(key => ({
 		key,
 		label: key,
-		preview: '',
 	}));
 };
 
@@ -1514,6 +1524,179 @@ const closeChannelPreviewCard = () => {
 	activeChannelPreviewItem.value = null;
 };
 
+const setChannelPreviewCanvas = (key: TextureChannelKey, element: unknown) => {
+	if (element instanceof HTMLCanvasElement) {
+		channelPreviewCanvases.set(key, element);
+		return;
+	}
+	channelPreviewCanvases.delete(key);
+};
+
+const renderChannelPreviewWithCanvas = (canvas: HTMLCanvasElement, image: ImageBitmap, key: TextureChannelKey) => {
+	const sourceWidth = image.width;
+	const sourceHeight = image.height;
+	if (sourceWidth <= 0 || sourceHeight <= 0) {
+		return;
+	}
+
+	const scale = Math.min(1, RGBA_PREVIEW_RENDER_MAX_DIMENSION / Math.max(sourceWidth, sourceHeight));
+	const width = Math.max(1, Math.round(sourceWidth * scale));
+	const height = Math.max(1, Math.round(sourceHeight * scale));
+	canvas.width = width;
+	canvas.height = height;
+
+	const context = canvas.getContext('2d', { willReadFrequently: true });
+	if (!context) {
+		return;
+	}
+	context.drawImage(image, 0, 0, width, height);
+	const imageData = context.getImageData(0, 0, width, height);
+	const channelOffset = key === 'R' ? 0 : key === 'G' ? 1 : key === 'B' ? 2 : 3;
+	for (let index = 0; index < imageData.data.length; index += 4) {
+		const intensity = imageData.data[index + channelOffset];
+		imageData.data[index] = intensity;
+		imageData.data[index + 1] = intensity;
+		imageData.data[index + 2] = intensity;
+		imageData.data[index + 3] = 255;
+	}
+	context.putImageData(imageData, 0, 0);
+};
+
+const compileChannelPreviewShader = (
+	context: WebGLRenderingContext,
+	type: number,
+	source: string
+): WebGLShader | undefined => {
+	const shader = context.createShader(type);
+	if (!shader) {
+		return undefined;
+	}
+	context.shaderSource(shader, source);
+	context.compileShader(shader);
+	if (context.getShaderParameter(shader, context.COMPILE_STATUS)) {
+		return shader;
+	}
+	context.deleteShader(shader);
+	return undefined;
+};
+
+const renderChannelPreview = (canvas: HTMLCanvasElement, image: ImageBitmap, key: TextureChannelKey) => {
+	const sourceWidth = image.width;
+	const sourceHeight = image.height;
+	if (sourceWidth <= 0 || sourceHeight <= 0) {
+		return;
+	}
+
+	const scale = Math.min(1, RGBA_PREVIEW_RENDER_MAX_DIMENSION / Math.max(sourceWidth, sourceHeight));
+	const width = Math.max(1, Math.round(sourceWidth * scale));
+	const height = Math.max(1, Math.round(sourceHeight * scale));
+	canvas.width = width;
+	canvas.height = height;
+
+	const context = canvas.getContext('webgl', { alpha: false, premultipliedAlpha: false });
+	if (!context) {
+		renderChannelPreviewWithCanvas(canvas, image, key);
+		return;
+	}
+
+	const vertexShader = compileChannelPreviewShader(
+		context,
+		context.VERTEX_SHADER,
+		'attribute vec2 position; varying vec2 uv; void main() { uv = (position + 1.0) * 0.5; gl_Position = vec4(position, 0.0, 1.0); }'
+	);
+	const fragmentShader = compileChannelPreviewShader(
+		context,
+		context.FRAGMENT_SHADER,
+		'precision mediump float; varying vec2 uv; uniform sampler2D sourceTexture; uniform vec4 channelMask; void main() { float intensity = dot(texture2D(sourceTexture, uv), channelMask); gl_FragColor = vec4(vec3(intensity), 1.0); }'
+	);
+	if (!vertexShader || !fragmentShader) {
+		renderChannelPreviewWithCanvas(canvas, image, key);
+		return;
+	}
+
+	const program = context.createProgram();
+	const buffer = context.createBuffer();
+	const texture = context.createTexture();
+	if (!program || !buffer || !texture) {
+		context.deleteShader(vertexShader);
+		context.deleteShader(fragmentShader);
+		renderChannelPreviewWithCanvas(canvas, image, key);
+		return;
+	}
+
+	context.attachShader(program, vertexShader);
+	context.attachShader(program, fragmentShader);
+	context.linkProgram(program);
+	if (!context.getProgramParameter(program, context.LINK_STATUS)) {
+		context.deleteTexture(texture);
+		context.deleteBuffer(buffer);
+		context.deleteProgram(program);
+		context.deleteShader(vertexShader);
+		context.deleteShader(fragmentShader);
+		renderChannelPreviewWithCanvas(canvas, image, key);
+		return;
+	}
+
+	context.useProgram(program);
+	context.bindBuffer(context.ARRAY_BUFFER, buffer);
+	context.bufferData(context.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]), context.STATIC_DRAW);
+	const positionLocation = context.getAttribLocation(program, 'position');
+	context.enableVertexAttribArray(positionLocation);
+	context.vertexAttribPointer(positionLocation, 2, context.FLOAT, false, 0, 0);
+	context.activeTexture(context.TEXTURE0);
+	context.bindTexture(context.TEXTURE_2D, texture);
+	context.pixelStorei(context.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+	context.pixelStorei(context.UNPACK_FLIP_Y_WEBGL, true);
+	context.texParameteri(context.TEXTURE_2D, context.TEXTURE_MIN_FILTER, context.LINEAR);
+	context.texParameteri(context.TEXTURE_2D, context.TEXTURE_MAG_FILTER, context.LINEAR);
+	context.texParameteri(context.TEXTURE_2D, context.TEXTURE_WRAP_S, context.CLAMP_TO_EDGE);
+	context.texParameteri(context.TEXTURE_2D, context.TEXTURE_WRAP_T, context.CLAMP_TO_EDGE);
+	context.texImage2D(context.TEXTURE_2D, 0, context.RGBA, context.RGBA, context.UNSIGNED_BYTE, image);
+	context.uniform1i(context.getUniformLocation(program, 'sourceTexture'), 0);
+	const channelMask = key === 'R' ? [1, 0, 0, 0] : key === 'G' ? [0, 1, 0, 0] : key === 'B' ? [0, 0, 1, 0] : [0, 0, 0, 1];
+	context.uniform4fv(context.getUniformLocation(program, 'channelMask'), channelMask);
+	context.viewport(0, 0, width, height);
+	context.drawArrays(context.TRIANGLES, 0, 6);
+	context.deleteTexture(texture);
+	context.deleteBuffer(buffer);
+	context.deleteProgram(program);
+	context.deleteShader(vertexShader);
+	context.deleteShader(fragmentShader);
+};
+
+const renderActiveChannelPreviews = async () => {
+	const item = activeChannelPreviewItem.value;
+	const renderToken = ++channelPreviewRenderToken;
+	if (!item?.preview) {
+		return;
+	}
+
+	if (!item.previewPath) {
+		return;
+	}
+	let image: ImageBitmap | undefined;
+	try {
+		image = await createImageBitmap(new Blob([await readFile(item.previewPath)]), {
+			premultiplyAlpha: 'none',
+			colorSpaceConversion: 'none',
+		});
+	} catch {
+		return;
+	}
+	if (renderToken !== channelPreviewRenderToken || activeChannelPreviewItem.value?.id !== item.id) {
+		image.close();
+		return;
+	}
+
+	for (const channel of item.channelPreviews) {
+		const canvas = channelPreviewCanvases.get(channel.key);
+		if (canvas) {
+			renderChannelPreview(canvas, image, channel.key);
+		}
+	}
+	image.close();
+};
+
 const stopRgbaPreviewResize = () => {
 	rgbaPreviewResizeCleanup?.();
 	rgbaPreviewResizeCleanup = undefined;
@@ -1701,25 +1884,15 @@ const loadTextureListByDrawCall = async (drawCallSelectionValue: string) => {
 					: '';
 
 				let preview = '';
+				let previewPath = '';
 				let size = '-';
-				let channelPreviews = createEmptyChannelPreviews();
+				const channelPreviews = createEmptyChannelPreviews();
 				if (dedupedBaseName) {
-					preview = await buildTexturePreviewUrl(
+					previewPath = await findTexturePreviewPath(
 						source.workspacePath,
-						`${dedupedBaseName}.jpg`,
-						previewCacheBustToken
+						`${dedupedBaseName}.png`
 					);
-					channelPreviews = await Promise.all(
-						textureChannelKeys.map(async key => ({
-							key,
-							label: key,
-							preview: await buildTexturePreviewUrl(
-								source.workspacePath,
-								`${dedupedBaseName}_${key}.jpg`,
-								previewCacheBustToken
-							),
-						}))
-					);
+					preview = previewPath ? `${convertFileSrc(previewPath)}?t=${previewCacheBustToken}` : '';
 					size = await getImageSize(preview);
 				}
 
@@ -1734,6 +1907,7 @@ const loadTextureListByDrawCall = async (drawCallSelectionValue: string) => {
 					size,
 					format: textureProperty?.Format,
 					preview,
+					previewPath,
 					channelPreviews,
 					markName: '',
 					markStyle: defaultMarkStyle,
@@ -2432,6 +2606,14 @@ watch(
 	}
 );
 
+watch(activeChannelPreviewItem, (item) => {
+	if (!item) {
+		channelPreviewRenderToken += 1;
+		return;
+	}
+	void nextTick(renderActiveChannelPreviews);
+});
+
 </script>
 
 <template>
@@ -2672,14 +2854,17 @@ watch(
 					@click.stop
 					@wheel.prevent="handleRgbaPreviewWheel"
 				>
-					<button
-						class="channel-preview-close-btn"
-						type="button"
-						aria-label="Close RGBA preview"
-						@click="closeChannelPreviewCard"
-					>
-						x
-					</button>
+					<header class="channel-preview-modal-header">
+						<h3>{{ t('markTexture.ui.rgbaChannelPreview') }}</h3>
+						<button
+							class="channel-preview-close-btn"
+							type="button"
+							:aria-label="t('markTexture.common.close')"
+							@click="closeChannelPreviewCard"
+						>
+							<el-icon><Close /></el-icon>
+						</button>
+					</header>
 
 					<div class="channel-preview-modal-grid">
 						<div
@@ -2689,12 +2874,9 @@ watch(
 						>
 							<div class="channel-modal-card-label">{{ channel.label.toUpperCase() }}</div>
 							<div class="channel-modal-card-preview">
-								<img
-									:src="channel.preview"
-									:alt="channel.key"
-									:style="{ opacity: channel.preview ? 1 : 0 }"
-									@load="handlePreviewImageLoad"
-									@error="handlePreviewImageError"
+								<canvas
+									:ref="element => setChannelPreviewCanvas(channel.key, element)"
+									:aria-label="channel.key"
 								/>
 							</div>
 						</div>
@@ -3267,10 +3449,10 @@ watch(
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	padding: 24px;
-	background: rgba(0, 0, 0, 0.34);
-	backdrop-filter: blur(6px);
-	-webkit-backdrop-filter: blur(6px);
+	padding: 16px;
+	background: rgba(5, 9, 16, 0.66);
+	backdrop-filter: blur(10px);
+	-webkit-backdrop-filter: blur(10px);
 }
 
 .channel-preview-modal {
@@ -3279,43 +3461,54 @@ watch(
 	max-height: calc(100vh - 32px);
 	overflow: hidden;
 	display: flex;
-	align-items: stretch;
-	justify-content: stretch;
-	padding: 12px;
-	border-radius: 20px;
-  border: var(--t-material-border);
-  background: var(--t-material-bg);
-  box-shadow: var(--t-material-shadow);
-	backdrop-filter: blur(18px) saturate(1.35);
-	-webkit-backdrop-filter: blur(18px) saturate(1.35);
+	flex-direction: column;
+	border: var(--t-material-border);
+	border-radius: 10px;
+	background: var(--t-material-bg);
+	box-shadow: var(--t-material-shadow);
+	backdrop-filter: blur(16px) saturate(1.2);
+	-webkit-backdrop-filter: blur(16px) saturate(1.2);
 	user-select: none;
 }
 
+.channel-preview-modal-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	min-height: 44px;
+	padding: 0 10px 0 14px;
+	border-bottom: 1px solid rgba(var(--theme-surface-tint-rgb), 0.14);
+	background: rgba(var(--theme-surface-tint-rgb), 0.055);
+}
+
+.channel-preview-modal-header h3 {
+	margin: 0;
+	color: rgba(var(--theme-text-primary-rgb), 0.94);
+	font-size: 13px;
+	font-weight: 650;
+	line-height: 1.2;
+}
+
 .channel-preview-close-btn {
-	position: absolute;
-	top: 12px;
-	right: 12px;
-	z-index: 3;
-	width: 30px;
-	height: 30px;
+	width: 28px;
+	height: 28px;
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
-	border: 1px solid rgba(255, 255, 255, 0.14);
-	border-radius: 999px;
-	background: rgba(255, 255, 255, 0.04);
-	color: rgba(244, 247, 255, 0.88);
-	font-size: 14px;
-	font-weight: 700;
-	pointer-events: auto;
+	padding: 0;
+	border: 1px solid rgba(var(--theme-surface-tint-rgb), 0.16);
+	border-radius: 6px;
+	background: rgba(255, 255, 255, 0.045);
+	color: rgba(var(--theme-text-primary-rgb), 0.8);
 	cursor: pointer;
-	transition: all 0.2s ease;
+	transition: color 0.16s ease, background 0.16s ease, border-color 0.16s ease;
 }
 
 .channel-preview-close-btn:hover {
-	background: rgba(255, 120, 120, 0.16);
-	border-color: rgba(255, 160, 160, 0.38);
-	color: #ffffff;
+	background: rgba(239, 68, 68, 0.16);
+	border-color: rgba(239, 68, 68, 0.4);
+	color: rgba(var(--theme-text-primary-rgb), 0.98);
 }
 
 .channel-preview-close-btn:focus-visible {
@@ -3327,10 +3520,11 @@ watch(
 	display: grid;
 	grid-template-columns: repeat(2, minmax(0, 1fr));
 	grid-template-rows: repeat(2, minmax(0, 1fr));
-	gap: 10px;
+	gap: 8px;
 	min-height: 0;
-	height: 100%;
+	flex: 1 1 auto;
 	width: 100%;
+	padding: 10px;
 	position: relative;
 	z-index: 1;
 }
@@ -3346,8 +3540,8 @@ watch(
 	top: 10px;
 	left: 10px;
 	z-index: 2;
-	padding: 4px 9px;
-	border-radius: 999px;
+	padding: 4px 7px;
+	border-radius: 5px;
 	background: rgba(var(--theme-surface-tint-rgb), 0.12);
 	border: 1px solid rgba(var(--theme-surface-tint-rgb), 0.20);
 	color: rgba(244, 247, 255, 0.92);
@@ -3362,7 +3556,7 @@ watch(
 .channel-modal-card-preview {
 	width: 100%;
 	height: 100%;
-	border-radius: 14px;
+	border-radius: 6px;
 	overflow: hidden;
 	border: 1px solid rgba(var(--theme-surface-tint-rgb), 0.10);
 	background:
@@ -3391,7 +3585,7 @@ watch(
 	border-color: rgba(117, 214, 187, 0.82);
 }
 
-.channel-modal-card-preview img {
+.channel-modal-card-preview canvas {
 	width: 100%;
 	height: 100%;
 	object-fit: contain;

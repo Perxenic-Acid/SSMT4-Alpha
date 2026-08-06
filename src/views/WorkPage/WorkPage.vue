@@ -66,7 +66,6 @@ type WorkPageTabConfig = {
   selectedFrameAnalysis: string;
   extractPanelTab: string;
   fullExtractDataTypeFilter: FullExtractDataTypeFilter;
-  convertRgbaChannelTextures: boolean;
   workPageDrawerCollapsed: {
     workspace: boolean;
     workspaceSelector: boolean;
@@ -111,7 +110,6 @@ const isExtracting = ref(false);
 const isSpecificIbDumpToggling = ref(false);
 const extractPanelTab = ref('drawib');
 const fullExtractDataTypeFilter = ref<FullExtractDataTypeFilter>('all');
-const convertRgbaChannelTextures = ref(appSettings.convertRgbaChannelTextures !== false);
 const useSpecificIbDump = ref(false);
 const specificIbDumpRestoreAnalyseOptions = ref('');
 const workPageDrawerCollapsed = ref({
@@ -500,7 +498,6 @@ const resetLeftThreeLists = () => {
   selectedFrameAnalysis.value = '';
   extractPanelTab.value = 'drawib';
   fullExtractDataTypeFilter.value = 'all';
-  convertRgbaChannelTextures.value = appSettings.convertRgbaChannelTextures !== false;
   workPageDrawerCollapsed.value = normalizeWorkPageDrawerCollapsed();
   isFrameAnalysisPathInvalid.value = false;
 };
@@ -530,7 +527,6 @@ const buildCurrentWorkspaceTabConfig = (): WorkPageTabConfig => ({
   selectedFrameAnalysis: selectedFrameAnalysis.value.trim(),
   extractPanelTab: extractPanelTab.value,
   fullExtractDataTypeFilter: fullExtractDataTypeFilter.value,
-  convertRgbaChannelTextures: convertRgbaChannelTextures.value,
   workPageDrawerCollapsed: normalizeWorkPageDrawerCollapsed(workPageDrawerCollapsed.value),
 });
 
@@ -600,7 +596,6 @@ const normalizeWorkspaceTabConfig = (
   selectedFrameAnalysis: (parsed?.selectedFrameAnalysis || '').trim(),
   extractPanelTab: parsed?.extractPanelTab || 'drawib',
   fullExtractDataTypeFilter: normalizeFullExtractDataTypeFilter(parsed),
-  convertRgbaChannelTextures: parsed?.convertRgbaChannelTextures ?? (appSettings.convertRgbaChannelTextures !== false),
   workPageDrawerCollapsed: normalizeWorkPageDrawerCollapsed(parsed?.workPageDrawerCollapsed),
 });
 
@@ -810,7 +805,6 @@ const applyWorkspaceTabConfig = async (config: WorkPageTabConfig) => {
     selectedFrameAnalysis.value = (config.selectedFrameAnalysis || '').trim();
     extractPanelTab.value = config.extractPanelTab || 'drawib';
     fullExtractDataTypeFilter.value = normalizeFullExtractDataTypeFilter(config);
-    convertRgbaChannelTextures.value = config.convertRgbaChannelTextures !== false;
     workPageDrawerCollapsed.value = normalizeWorkPageDrawerCollapsed(config.workPageDrawerCollapsed);
 
     ensureTrailingEmptyRow();
@@ -939,7 +933,6 @@ const loadWorkspaceTabConfig = async (wsName: string, tabId: string): Promise<vo
       selectedFrameAnalysis: '',
       extractPanelTab: 'drawib',
       fullExtractDataTypeFilter: 'all',
-      convertRgbaChannelTextures: appSettings.convertRgbaChannelTextures !== false,
       workPageDrawerCollapsed: normalizeWorkPageDrawerCollapsed(),
     });
     return;
@@ -1196,7 +1189,7 @@ watch(frameAnalysisFolderPath, () => {
   }, 250);
 });
 
-watch([selectedFrameAnalysis, extractPanelTab, fullExtractDataTypeFilter, convertRgbaChannelTextures], () => {
+watch([selectedFrameAnalysis, extractPanelTab, fullExtractDataTypeFilter], () => {
   if (isWorkspaceTabConfigLoading.value || isWorkspaceTransitioning.value) return;
   void saveCurrentWorkspaceTabConfig();
 });
@@ -1205,11 +1198,6 @@ watch(workPageDrawerCollapsed, () => {
   if (isWorkspaceTabConfigLoading.value || isWorkspaceTransitioning.value) return;
   void saveCurrentWorkspaceTabConfig();
 }, { deep: true });
-
-watch(convertRgbaChannelTextures, (value) => {
-  if (isWorkspaceTabConfigLoading.value || isWorkspaceTransitioning.value) return;
-  appSettings.convertRgbaChannelTextures = value;
-});
 
 watch(activeWorkspaceTabId, async (newTabId, oldTabId) => {
   if (!workspaceName.value) return;
@@ -1423,7 +1411,6 @@ const handleExtractModels = async () => {
     workspaceName.value,
     appSettings.CurrentGameName,
     activeWorkspaceTabId.value,
-    convertRgbaChannelTextures.value,
     appSettings.textureMarkStylePreference,
     (value) => {
       isExtracting.value = value;
@@ -1452,7 +1439,6 @@ const handleFullExtract = async () => {
     workspaceName.value,
     appSettings.CurrentGameName,
     activeWorkspaceTabId.value,
-    convertRgbaChannelTextures.value,
     appSettings.textureMarkStylePreference,
     (value) => {
       isExtracting.value = value;
@@ -2480,7 +2466,6 @@ const handleDeleteWorkspace = async (targetWorkspaceName = workspaceName.value) 
                 v-model:frameAnalysisFolderPath="frameAnalysisFolderPath"
                 v-model:extractPanelTab="extractPanelTab"
                 v-model:modelRows="modelRows"
-                v-model:convertRgbaChannelTextures="convertRgbaChannelTextures"
                 v-model:fullExtractDataTypeFilter="fullExtractDataTypeFilter"
                 :frameAnalysisOptions="frameAnalysisOptions"
                 :isRefreshing="isRefreshing"

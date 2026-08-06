@@ -70,7 +70,6 @@ pub async fn extract_models_new(
     game_preset: String,
     workspace_root_path: String,
     lod_name: String,
-    convert_rgba_channel_textures: bool,
 ) -> Result<(), String> {
     let lod_workspace_path = resolve_lod_workspace_path(&workspace_root_path, &lod_name)?;
 
@@ -80,7 +79,6 @@ pub async fn extract_models_new(
             &lod_workspace_path,
             FullExtractDataTypeFilter::All,
             false,
-            convert_rgba_channel_textures,
         );
     }
 
@@ -94,7 +92,6 @@ pub async fn extract_models_new(
         &lod_workspace_path,
         FullExtractDataTypeFilter::All,
         false,
-        convert_rgba_channel_textures,
     )?;
 
     Ok(())
@@ -108,7 +105,6 @@ pub async fn full_extract(
     workspace_root_path: String,
     lod_name: String,
     data_type_filter: String,
-    convert_rgba_channel_textures: bool,
 ) -> Result<(), String> {
     let start_time = Instant::now();
 
@@ -122,7 +118,6 @@ pub async fn full_extract(
             &lod_workspace_path,
             data_type_filter,
             true,
-            convert_rgba_channel_textures,
         );
         let elapsed = start_time.elapsed();
         println!(
@@ -143,7 +138,6 @@ pub async fn full_extract(
         &lod_workspace_path,
         data_type_filter,
         true,
-        convert_rgba_channel_textures,
     )?;
 
     let elapsed = start_time.elapsed();

@@ -631,7 +631,6 @@
       "selectFolder": "Select Folder",
       "open": "Open",
       "extractModels": "Extract Models",
-      "convertRgbaChannelTextures": "Convert RGBA channel textures",
       "fullExtractDataTypeFilter": "Data Type",
       "fullExtractAllDataTypes": "All data types",
       "fullExtractGpuPreSkinningOnly": "GPU-PreSkinning data types only",
@@ -795,7 +794,8 @@
   "markTexture": {
     "common": {
       "confirm": "Confirm",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "close": "Close"
     },
     "dialog": {
       "deleteCurrentTextureConfigTitle": "Confirm Texture Config Deletion"
