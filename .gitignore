@@ -43,3 +43,5 @@ tmp-install-check-delay
 
 bun.lock
 
+
+*.bak*

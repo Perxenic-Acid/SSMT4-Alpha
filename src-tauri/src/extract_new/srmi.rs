@@ -333,11 +333,157 @@ impl SRMINewExtractor {
         result
     }
 
+    fn normalize_dxgi_format(format: &str) -> String {
+        let upper = format.trim().to_ascii_uppercase();
+        upper
+            .strip_prefix("DXGI_FORMAT_")
+            .unwrap_or(&upper)
+            .to_string()
+    }
+
+    fn read_migoto_input_layout_for_slot(
+        txt_file_path: &Path,
+        input_slot: u64,
+    ) -> Result<Vec<(String, u64, String, u64)>, String> {
+        let content = fs::read_to_string(txt_file_path).map_err(|e| {
+            format!(
+                "Failed to read migoto layout txt {}: {}",
+                txt_file_path.display(),
+                e
+            )
+        })?;
+
+        let mut result: Vec<(String, u64, String, u64)> = Vec::new();
+
+        for block in content.split("element[").skip(1) {
+            let mut semantic_name: Option<String> = None;
+            let mut semantic_index: Option<u64> = None;
+            let mut format: Option<String> = None;
+            let mut slot: Option<u64> = None;
+            let mut aligned_byte_offset: Option<u64> = None;
+
+            for line in block.lines() {
+                let trimmed = line.trim();
+                if trimmed.eq_ignore_ascii_case("vertex-data:") {
+                    break;
+                }
+
+                if let Some(value) = trimmed.strip_prefix("SemanticName:") {
+                    semantic_name = Some(value.trim().to_string());
+                } else if let Some(value) = trimmed.strip_prefix("SemanticIndex:") {
+                    semantic_index = value.trim().parse::<u64>().ok();
+                } else if let Some(value) = trimmed.strip_prefix("Format:") {
+                    format = Some(Self::normalize_dxgi_format(value));
+                } else if let Some(value) = trimmed.strip_prefix("InputSlot:") {
+                    slot = value.trim().parse::<u64>().ok();
+                } else if let Some(value) = trimmed.strip_prefix("AlignedByteOffset:") {
+                    aligned_byte_offset = value.trim().parse::<u64>().ok();
+                }
+            }
+
+            if let (
+                Some(semantic_name),
+                Some(semantic_index),
+                Some(format),
+                Some(slot),
+                Some(aligned_byte_offset),
+            ) = (
+                semantic_name,
+                semantic_index,
+                format,
+                slot,
+                aligned_byte_offset,
+            ) {
+                if slot == input_slot {
+                    result.push((
+                        semantic_name,
+                        semantic_index,
+                        format,
+                        aligned_byte_offset,
+                    ));
+                }
+            }
+        }
+
+        Ok(result)
+    }
+
+    fn category_matches_migoto_input_layout(
+        &self,
+        d3d11_game_type: &D3D11GameType,
+        category_name: &str,
+        category_slot: &str,
+        txt_file_path: &Path,
+    ) -> Result<bool, String> {
+        let slot_lower = category_slot.trim().to_ascii_lowercase();
+        let Some(input_slot) = slot_lower
+            .strip_prefix("vb")
+            .and_then(|value| value.parse::<u64>().ok())
+        else {
+            return Ok(true);
+        };
+
+        let actual_elements =
+            Self::read_migoto_input_layout_for_slot(txt_file_path, input_slot)?;
+        if actual_elements.is_empty() {
+            return Ok(true);
+        }
+
+        let mut expected_offset = 0u64;
+        for element_name in &d3d11_game_type.ordered_full_element_list {
+            let Some(element) = d3d11_game_type
+                .element_name_d3d11_element_dict
+                .get(element_name)
+            else {
+                continue;
+            };
+            if element.category != category_name {
+                continue;
+            }
+
+            let expected_format = Self::normalize_dxgi_format(&element.format);
+            let found = actual_elements.iter().any(
+                |(semantic_name, semantic_index, format, aligned_byte_offset)| {
+                    semantic_name.eq_ignore_ascii_case(&element.semantic_name)
+                        && *semantic_index == element.semantic_index
+                        && format.eq_ignore_ascii_case(&expected_format)
+                        && *aligned_byte_offset == expected_offset
+                },
+            );
+
+            if !found {
+                println!(
+                    "InputLayout mismatch: GameType={}, category={}, slot={}, expected {}{} {} at byte offset {}",
+                    d3d11_game_type.game_type_name,
+                    category_name,
+                    category_slot,
+                    element.semantic_name,
+                    element.semantic_index,
+                    expected_format,
+                    expected_offset
+                );
+                return Ok(false);
+            }
+
+            expected_offset = expected_offset
+                .checked_add(element.byte_width_int())
+                .ok_or_else(|| {
+                    format!(
+                        "InputLayout expected offset overflow: GameType={} category={}",
+                        d3d11_game_type.game_type_name, category_name
+                    )
+                })?;
+        }
+
+        Ok(true)
+    }
+
     fn export_category_buffer(
         &self,
         category_name: &str,
         category_buf_filename: &str,
         gpu_pre_skinning: bool,
+        gpu_vertex_slice: Option<(usize, usize, usize)>,
         category_output_buf_file_path: &Path,
     ) -> Result<(), String> {
         println!(
@@ -366,8 +512,55 @@ impl SRMINewExtractor {
         }
 
         if gpu_pre_skinning {
+            if let Some((byte_offset, vertex_count, stride)) = gpu_vertex_slice {
+                let category_buf_bytes = fs::read(&category_buf_file_path).map_err(|e| {
+                    format!(
+                        "Failed to read GPU category buffer file for category {}: {}",
+                        category_name, e
+                    )
+                })?;
+                let read_len = vertex_count.checked_mul(stride).ok_or_else(|| {
+                    format!(
+                        "GPU category {} slice length overflow: vertex_count={} stride={}",
+                        category_name, vertex_count, stride
+                    )
+                })?;
+                let end = byte_offset.checked_add(read_len).ok_or_else(|| {
+                    format!(
+                        "GPU category {} slice end overflow: byte_offset={} read_len={}",
+                        category_name, byte_offset, read_len
+                    )
+                })?;
+                let sliced_bytes = SSMTBinaryUtils::get_range_bytes(
+                    &category_buf_bytes,
+                    byte_offset,
+                    end,
+                )
+                .map_err(|e| {
+                    format!(
+                        "Failed to slice GPU category buffer for category {}: {}",
+                        category_name, e
+                    )
+                })?;
+                fs::write(category_output_buf_file_path, sliced_bytes).map_err(|e| {
+                    format!(
+                        "Failed to write sliced GPU category buffer for category {}: {}",
+                        category_name, e
+                    )
+                })?;
+                println!(
+                    "[export_category_buffer] branch=gpu_logical_slice: category_name={}, byte_offset={}, vertex_count={}, stride={}, output_size={}",
+                    category_name,
+                    byte_offset,
+                    vertex_count,
+                    stride,
+                    read_len
+                );
+                return Ok(());
+            }
+
             println!(
-                "[export_category_buffer] branch=gpu_full_copy: category_name={}, gpu_pre_skinning=true",
+                "[export_category_buffer] branch=gpu_full_copy: category_name={}, gpu_pre_skinning=true, logical_slice_unavailable=true",
                 category_name
             );
             fs::copy(&category_buf_file_path, category_output_buf_file_path).map_err(|e| {
@@ -574,6 +767,146 @@ impl SRMINewExtractor {
                 category_buf_filename_map
                     .insert(category_name.clone(), category_buf_filename.clone());
             }
+
+            // GPU-pre-skinning vertex streams are a shared global vertex domain.
+            // A draw-time vb0 "vertex count" is only the highest addressed vertex
+            // plus one for that draw; it is NOT the size of this submesh's Position
+            // stream. Derive the actual global domain from the other matched vertex
+            // categories (normally Texcoord and Blend), whose full buffers are
+            // already exported unchanged, then trim the oversized Position backing
+            // resource to exactly that same global vertex count.
+            let gpu_position_slice: Option<(usize, usize, usize)> =
+                if d3d11_game_type.gpu_pre_skinning {
+                    let mut logical_vertex_count: Option<u64> = None;
+                    let mut logical_domain_valid = true;
+
+                    for logical_category_name in
+                        d3d11_game_type.ordered_category_name_list.iter()
+                    {
+                        if logical_category_name == "Position" {
+                            continue;
+                        }
+
+                        let logical_stride = d3d11_game_type
+                            .category_stride_dict
+                            .get(logical_category_name)
+                            .copied()
+                            .unwrap_or(0);
+                        if logical_stride == 0 {
+                            continue;
+                        }
+
+                        let logical_buf_filename = category_buf_filename_map
+                            .get(logical_category_name)
+                            .cloned()
+                            .unwrap_or_default();
+                        if logical_buf_filename.is_empty() {
+                            continue;
+                        }
+
+                        let logical_buf_path =
+                            self.fa_log.get_deduped_filepath(&logical_buf_filename);
+                        if logical_buf_path.is_empty()
+                            || !Path::new(&logical_buf_path).exists()
+                        {
+                            continue;
+                        }
+
+                        let logical_buf_size =
+                            SSMTFileUtils::get_file_size(&logical_buf_path)?;
+                        if logical_buf_size == 0
+                            || logical_buf_size % logical_stride != 0
+                        {
+                            println!(
+                                "GPU global vertex domain unavailable: category={}, filesize={}, stride={}",
+                                logical_category_name,
+                                logical_buf_size,
+                                logical_stride
+                            );
+                            logical_domain_valid = false;
+                            break;
+                        }
+
+                        let category_vertex_count = logical_buf_size / logical_stride;
+                        if category_vertex_count == 0 {
+                            logical_domain_valid = false;
+                            break;
+                        }
+
+                        if let Some(previous_vertex_count) = logical_vertex_count {
+                            if previous_vertex_count != category_vertex_count {
+                                println!(
+                                    "GPU global vertex domain mismatch: category={} has {} vertices, previous categories have {}",
+                                    logical_category_name,
+                                    category_vertex_count,
+                                    previous_vertex_count
+                                );
+                                logical_domain_valid = false;
+                                break;
+                            }
+                        } else {
+                            logical_vertex_count = Some(category_vertex_count);
+                        }
+                    }
+
+                    if logical_domain_valid {
+                        if let Some(vertex_count) = logical_vertex_count {
+                            let position_stride = d3d11_game_type
+                                .category_stride_dict
+                                .get("Position")
+                                .copied()
+                                .unwrap_or(0);
+                            let position_buf_filename = category_buf_filename_map
+                                .get("Position")
+                                .cloned()
+                                .unwrap_or_default();
+                            let position_buf_path =
+                                self.fa_log.get_deduped_filepath(&position_buf_filename);
+
+                            if position_stride == 0
+                                || position_buf_path.is_empty()
+                                || !Path::new(&position_buf_path).exists()
+                            {
+                                None
+                            } else {
+                                let position_buf_size =
+                                    SSMTFileUtils::get_file_size(&position_buf_path)?;
+                                let position_capacity = position_buf_size / position_stride;
+
+                                if position_capacity < vertex_count {
+                                    println!(
+                                        "GPU Position global-domain slice unavailable: position_capacity={} < logical_vertex_count={}",
+                                        position_capacity,
+                                        vertex_count
+                                    );
+                                    None
+                                } else {
+                                    println!(
+                                        "GPU Position global-domain slice: logical_vertex_count={}, position_capacity={}, position_stride={}",
+                                        vertex_count,
+                                        position_capacity,
+                                        position_stride
+                                    );
+                                    Some((
+                                        0,
+                                        vertex_count as usize,
+                                        position_stride as usize,
+                                    ))
+                                }
+                            }
+                        } else {
+                            println!(
+                                "GPU Position global-domain slice unavailable: no non-Position category supplied a logical vertex count"
+                            );
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
             let unique_str_folder_name = format!(
                 "{}-{}-{}",
                 draw_ib, ib_txt_file.index_count, ib_txt_file.first_index
@@ -611,10 +944,18 @@ impl SRMINewExtractor {
                     category_name,
                     category_output_buf_file_path.display()
                 );
+                let gpu_vertex_slice = if d3d11_game_type.gpu_pre_skinning
+                    && category_name == "Position"
+                {
+                    gpu_position_slice
+                } else {
+                    None
+                };
                 self.export_category_buffer(
                     category_name,
                     &category_buf_filename,
                     d3d11_game_type.gpu_pre_skinning,
+                    gpu_vertex_slice,
                     &category_output_buf_file_path,
                 )?;
             }
@@ -1415,6 +1756,31 @@ impl SRMINewExtractor {
                     .unwrap_or_default();
                 let category_buf_txt_filepath =
                     self.resolve_fa_filepath(&category_buf_txt_filename);
+
+                // Same total stride is not enough to identify a GPU trianglelist
+                // category. Verify semantic/index/format/offset against the captured
+                // D3D11 InputLayout when element[] metadata is available.
+                if d3d11_game_type.gpu_pre_skinning
+                    && topology != "pointlist"
+                    && !category_buf_txt_filename.is_empty()
+                    && category_buf_txt_filepath.exists()
+                    && !self.category_matches_migoto_input_layout(
+                        d3d11_game_type,
+                        category_name,
+                        &category_slot,
+                        &category_buf_txt_filepath,
+                    )?
+                {
+                    println!(
+                        "GameType {} skipped: captured InputLayout does not match category {} in slot {}",
+                        d3d11_game_type.game_type_name,
+                        category_name,
+                        category_slot
+                    );
+                    all_file_exists = false;
+                    break;
+                }
+
                 let category_buf_filesize = if category_buf_txt_filename.is_empty()
                     || !category_buf_txt_filepath.exists()
                 {
@@ -1438,6 +1804,11 @@ impl SRMINewExtractor {
             }
 
             let mut vertex_number = 0;
+            // GPU pre-skinning Position buffers can be views into a larger shared
+            // backing resource. For those buffers, filesize / stride is the resource
+            // capacity rather than this draw's logical vertex count. Defer Position
+            // validation until Texcoord/Blend have established the logical count.
+            let mut gpu_position_vertex_capacity: Option<u64> = None;
             let mut all_match = true;
 
             for category_name in d3d11_game_type.ordered_category_name_list.iter() {
@@ -1466,6 +1837,15 @@ impl SRMINewExtractor {
                     break;
                 } else {
                     println!("tmp_vertex_number: category_buf_filesize / category_stride = {} for category {}", tmp_vertex_number, category_name);
+                }
+
+                if d3d11_game_type.gpu_pre_skinning && category_name == "Position" {
+                    gpu_position_vertex_capacity = Some(tmp_vertex_number);
+                    println!(
+                        "GPU Position resource capacity: {} vertices; defer logical vertex-count comparison until non-Position categories are matched",
+                        tmp_vertex_number
+                    );
+                    continue;
                 }
 
                 if !d3d11_game_type.gpu_pre_skinning {
@@ -1541,6 +1921,31 @@ impl SRMINewExtractor {
                         "category match successful: vertex number {} from category {}",
                         vertex_number, category_name
                     );
+                }
+            }
+
+            if all_match && d3d11_game_type.gpu_pre_skinning {
+                if let Some(position_vertex_capacity) = gpu_position_vertex_capacity {
+                    if vertex_number == 0 {
+                        // Position-only GPU GameType: preserve the old behavior because
+                        // there is no independent per-mesh category to establish a
+                        // smaller logical vertex count.
+                        vertex_number = position_vertex_capacity;
+                    } else if position_vertex_capacity < vertex_number {
+                        println!(
+                            "GameType {} skipped: Position resource capacity {} is less than logical vertex number {} from non-Position categories",
+                            d3d11_game_type.game_type_name,
+                            position_vertex_capacity,
+                            vertex_number
+                        );
+                        all_match = false;
+                    } else {
+                        println!(
+                            "GPU Position capacity match successful: resource capacity {} >= logical vertex number {}",
+                            position_vertex_capacity,
+                            vertex_number
+                        );
+                    }
                 }
             }
 
