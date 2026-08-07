@@ -825,6 +825,11 @@ const initializeZoomRenderer = () => {
 		zoomControls.enablePan = false;
 		zoomControls.zoomSpeed = 1.1;
 		zoomControls.target.copy(rotationCenter);
+		// OrbitControls is constructed with target=(0,0,0). Its constructor may
+		// immediately update the shared camera against that default target.
+		// Apply the real model pivot immediately; otherwise the camera stays aimed
+		// at the origin until the first wheel/pointer interaction calls update().
+		zoomControls.update();
 		zoomControls.addEventListener('change', renderPreview);
 	}
 	const previewPage = previewHost.value?.closest('.mark-texture-page');
