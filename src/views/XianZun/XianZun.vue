@@ -8,6 +8,7 @@ import {
   CopyDocument,
   Delete,
   Link as LinkIcon,
+  List,
   MagicStick,
   Promotion,
   Setting,
@@ -24,6 +25,7 @@ import { buildCapabilityTools } from '../../store/XianZunCapabilities'
 import type { CapabilityTool } from '../../store/XianZunCapabilities'
 import { webTools } from '../../store/XianZunWebTools'
 import { agentTools } from '../../store/XianZunAgentTools'
+import { fileTools } from '../../store/XianZunFileTools'
 import { useResourceManagerStore } from '../../store/ResourceManager'
 import { useModManagerStore } from '../../store/ModManager'
 import { useModTagStore } from '../../store/ModTagStore'
@@ -105,6 +107,31 @@ const stringProp = (description: string, enumValues?: string[]) => ({
   description,
   ...(enumValues ? { enum: enumValues } : {}),
 })
+
+/* ═══════════════════════════════════════════════
+   Task plan — mirrors Kun's todo/task-graph: the
+   agent declares a plan, then updates each step.
+   ═══════════════════════════════════════════════ */
+
+type TaskStepStatus = 'pending' | 'in_progress' | 'done' | 'failed'
+interface TaskStep {
+  title: string
+  status: TaskStepStatus
+}
+const taskPlan = ref<TaskStep[]>([])
+const taskPlanVisible = ref(false)
+
+const resetTaskPlan = () => {
+  taskPlan.value = []
+  taskPlanVisible.value = false
+}
+
+const taskPlanStepIcon = (status: TaskStepStatus): string => {
+  if (status === 'done') return '✓'
+  if (status === 'failed') return '✕'
+  if (status === 'in_progress') return '▶'
+  return '○'
+}
 
 const uiCommands: XianZunCommand[] = [
   {
@@ -191,6 +218,66 @@ const uiCommands: XianZunCommand[] = [
     },
   },
   {
+    name: 'create_task_plan',
+    description: '开始复杂任务前声明执行计划:传入步骤标题数组,界面会展示任务进度列表,让用户看到任务进行到哪一步。适合多步工作流(如 搜索→下载→安装→验证)。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        steps: {
+          type: 'array',
+          description: '步骤标题列表,按执行顺序,如 ["搜索 GameBanana", "下载 Mod", "安装并打标签"]',
+        },
+      },
+      required: ['steps'],
+    },
+    execute: (args) => {
+      const steps = Array.isArray(args.steps) ? args.steps.map((s) => String(s).trim()).filter(Boolean) : []
+      if (steps.length === 0) {
+        return '缺少有效参数:steps(至少一个步骤标题)。'
+      }
+      taskPlan.value = steps.map((title) => ({ title, status: 'pending' as TaskStepStatus }))
+      taskPlanVisible.value = true
+      return `计划已创建,共 ${steps.length} 步。请逐步执行,每完成一步调用 update_task_step 更新状态。`
+    },
+  },
+  {
+    name: 'update_task_step',
+    description: '更新任务计划中某一步的状态(in_progress 开始执行 / done 完成 / failed 失败)。每一步的状态变化都应调用一次。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        index: { type: 'number', description: '步骤序号(从 0 开始)' },
+        status: stringProp('新状态', ['pending', 'in_progress', 'done', 'failed']),
+      },
+      required: ['index', 'status'],
+    },
+    execute: (args) => {
+      const index = Number(args.index)
+      const status = String(args.status ?? '') as TaskStepStatus
+      if (!taskPlanVisible.value || taskPlan.value.length === 0) {
+        return '当前没有进行中的任务计划,请先调用 create_task_plan。'
+      }
+      if (!Number.isSafeInteger(index) || index < 0 || index >= taskPlan.value.length) {
+        return `无效的步骤序号:${index}(有效范围 0-${taskPlan.value.length - 1})。`
+      }
+      if (!['pending', 'in_progress', 'done', 'failed'].includes(status)) {
+        return `无效状态:${status}。可用:pending / in_progress / done / failed`
+      }
+      taskPlan.value[index].status = status
+      const remaining = taskPlan.value.filter((s) => s.status !== 'done' && s.status !== 'failed').length
+      return `步骤 ${index} 已更新为 ${status}。剩余未完成:${remaining} 步。`
+    },
+  },
+  {
+    name: 'complete_task_plan',
+    description: '全部步骤完成后调用,结束任务计划并隐藏进度面板。',
+    inputSchema: { type: 'object', properties: {}, required: [] },
+    execute: () => {
+      resetTaskPlan()
+      return '任务计划已完成。'
+    },
+  },
+  {
     name: 'clear_conversation',
     description: '清空当前对话历史。',
     inputSchema: { type: 'object', properties: {}, required: [] },
@@ -218,6 +305,7 @@ const commands: XianZunCommand[] = [
   ...capabilityTools,
   ...webTools,
   ...agentTools,
+  ...fileTools,
 ]
 
 /* ═══════════════════════════════════════════════
@@ -338,6 +426,7 @@ const buildSystemPrompt = (): string => {
     '你拥有操控整个应用的能力(如同自己的手臂):不仅能调用下方精确注册的指令,还能调用前端全部模块函数(自动注册,名称格式为 模块.函数,例如 ResourceManager.loadGameConfig、ModManager.toggleMod、MigotoManager.switchD3d11Mode、PathHelper.GetCurrentGame3DmigotoFolderPath)。',
     '你还可以直接访问 GameBanana(无需浏览器):用 gamebanana_search_mods 按关键词搜索 Mod、gamebanana_get_categories 查看分类、gamebanana_get_mod_detail 查看 Mod 的截图/描述/下载链接。找到合适的 Mod 时,用 markdown 图片语法展示预览图给用户,并询问是否安装;用户同意后调用 gamebanana_download_and_install_mod 完成下载安装。',
     '你拥有通用 agent 能力:run_shell_command 可以执行任意 PowerShell 命令(读取文件内容、目录遍历、进程/服务查询、运行脚本等,需要用户确认);read_text_file / list_directory / file_exists 可以查看本机文件;fetch_webpage 可以抓取任意网页文本(如文档、GitHub 页面)。',
+    '你拥有完整的文件与代码能力:write_text_file / edit_text_file / append_text_file 可以创建、修改、追加文本文件(UTF-8,自动建目录,需要用户确认);search_text 可以按正则搜索目录中的文本(grep 风格,返回 路径:行号:内容);find_files 可以按通配符查找文件。需要修改代码或配置文件时,先 read_text_file / search_text 看清楚现状,再精确 edit。',
     '',
     '精确注册的指令(参数键名必须与指令参数名一致):',
     commandList,
@@ -349,6 +438,9 @@ const buildSystemPrompt = (): string => {
     '- 缺少必需参数(如 installDir、frameAnalysisFolder、drawIb hash、downloadUrl 等用户才知道的信息)时,不要猜测或编造,先向用户提问,补齐后再调用。',
     '- 标记 [写] 或 [危险] 的指令会弹出确认框征求用户同意;若用户拒绝(返回"用户拒绝"),不要硬重试,改为向用户说明或换一种方案。',
     '- 调用可能耗时较长的命令(下载、全量提取、扫描)前,先告诉用户你正在做什么。',
+    '- 复杂任务(多步工作流)开始前,先调用 create_task_plan 声明步骤计划;每完成一步调用 update_task_step 更新进度(界面会实时展示任务面板);全部完成后调用 complete_task_plan。',
+    '- 探索代码/项目时,先用 get_directory_tree 看目录结构、get_file_outline 看文件符号概览,再精读需要修改的部分,改完用 list_project_scripts 查脚本并运行验证。',
+    '- 查看代码项目的 Git 状态/历史/改动时,用 git_status(未提交改动清单)、git_log(提交历史)、git_diff(改动内容),三者均只读。',
     '- 你支持 Markdown 富文本输出:可以嵌入图片(![描述](图片URL))、超链接([文字](URL))、代码块、表格、列表等。需要给用户看图(如 Mod 预览图、提取结果、参考图)时,直接用图片语法展示;引用外部资料时,用超链接。图片 URL 必须以 https:// 或 http:// 开头。',
     '- 严禁编造指令执行结果;只有收到工具返回后才可以引用其结果。',
   ].join('\n')
@@ -598,7 +690,7 @@ const runAgentTurn = async () => {
   void scrollToBottom()
 
   const toolResultQueue: ApiMessage[] = []
-  const model = appSettings.xianzunModel.trim() || 'deepseek-chat'
+  const model = appSettings.xianzunModel.trim() || 'deepseek-v4-flash'
 
   try {
     let rounds = 0
@@ -1057,10 +1149,10 @@ onMounted(() => {
           default-first-option
           :placeholder="t('xianzun.model')"
         >
+          <el-option label="deepseek-v4-pro" value="deepseek-v4-pro" />
+          <el-option label="deepseek-v4-flash" value="deepseek-v4-flash" />
           <el-option label="deepseek-chat" value="deepseek-chat" />
           <el-option label="deepseek-reasoner" value="deepseek-reasoner" />
-          <el-option label="deepseek-flash" value="deepseek-flash" />
-          <el-option label="deepseek-pro" value="deepseek-pro" />
         </el-select>
 
         <el-tooltip :content="t('xianzun.settings')" placement="bottom" :show-after="250">
@@ -1079,6 +1171,21 @@ onMounted(() => {
 
     <!-- ═══ Chat list ═══ -->
     <main ref="chatListRef" class="xz-chat glass-scrollbar">
+      <!-- Task plan progress -->
+      <div v-if="taskPlanVisible && taskPlan.length > 0" class="xz-plan">
+        <div class="xz-plan-head">
+          <el-icon><List /></el-icon>
+          <span>{{ t('xianzun.taskPlan') }}</span>
+          <span class="xz-plan-count">{{ taskPlan.filter(s => s.status === 'done').length }}/{{ taskPlan.length }}</span>
+        </div>
+        <div class="xz-plan-steps">
+          <div v-for="(step, i) in taskPlan" :key="i" class="xz-plan-step" :class="step.status">
+            <span class="xz-plan-icon">{{ taskPlanStepIcon(step.status) }}</span>
+            <span class="xz-plan-title">{{ step.title }}</span>
+          </div>
+        </div>
+      </div>
+
       <!-- Empty state -->
       <div v-if="messages.length === 0" class="xz-empty">
         <div class="xz-empty-orb" aria-hidden="true">
@@ -1208,7 +1315,7 @@ onMounted(() => {
           <span class="xz-hint">
             {{ t('xianzun.hint') }}
             <span class="xz-hint-sep">·</span>
-            <span class="xz-hint-model">{{ appSettings.xianzunModel || 'deepseek-chat' }}</span>
+            <span class="xz-hint-model">{{ appSettings.xianzunModel || 'deepseek-v4-flash' }}</span>
           </span>
           <button
             type="button"
@@ -1271,10 +1378,10 @@ onMounted(() => {
             default-first-option
             class="xz-settings-model"
           >
+            <el-option label="deepseek-v4-pro" value="deepseek-v4-pro" />
+            <el-option label="deepseek-v4-flash" value="deepseek-v4-flash" />
             <el-option label="deepseek-chat" value="deepseek-chat" />
             <el-option label="deepseek-reasoner" value="deepseek-reasoner" />
-            <el-option label="deepseek-flash" value="deepseek-flash" />
-            <el-option label="deepseek-pro" value="deepseek-pro" />
           </el-select>
         </label>
 
@@ -1472,6 +1579,73 @@ onMounted(() => {
   background: rgba(var(--theme-surface-tint-rgb), 0.14);
   border-color: rgba(var(--theme-surface-tint-rgb), 0.28);
   color: rgba(var(--theme-text-primary-rgb), 1);
+}
+
+/* ── Task plan panel ── */
+.xz-plan {
+  margin: 8px 0 14px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--t-material-bg);
+  border: var(--t-material-border);
+  box-shadow: var(--t-shadow-section);
+  animation: xz-msg-in 0.22s ease-out both;
+}
+
+.xz-plan-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(var(--theme-text-primary-rgb), 0.92);
+}
+
+.xz-plan-count {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(var(--theme-text-secondary-rgb), 0.6);
+}
+
+.xz-plan-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.xz-plan-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: rgba(var(--theme-text-secondary-rgb), 0.75);
+}
+
+.xz-plan-icon {
+  flex: 0 0 auto;
+  width: 16px;
+  text-align: center;
+  font-size: 11px;
+}
+
+.xz-plan-step.done .xz-plan-icon { color: var(--t-success-text); }
+.xz-plan-step.failed .xz-plan-icon { color: var(--t-danger-text); }
+.xz-plan-step.in_progress .xz-plan-icon {
+  color: var(--t-warning-text);
+  animation: xz-pulse 1.1s ease-in-out infinite;
+}
+.xz-plan-step.done .xz-plan-title {
+  color: rgba(var(--theme-text-secondary-rgb), 0.5);
+  text-decoration: line-through;
+}
+.xz-plan-step.in_progress .xz-plan-title {
+  color: rgba(var(--theme-text-primary-rgb), 0.95);
+  font-weight: 600;
 }
 
 /* ── Chat list ── */

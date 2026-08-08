@@ -263,6 +263,7 @@
     "welcomeTitle": "你好,我是小尊小尊",
     "welcomeDesc": "SSMT4 里的 AI 智能体。我可以陪你聊天、写代码、翻译,也可以调用应用内的指令帮你跳转页面、查询状态。",
     "capabilities": "已注册指令",
+    "taskPlan": "任务计划",
     "settings": "设置",
     "settingsTitle": "小尊小尊 设置",
     "apiKey": "API Key",

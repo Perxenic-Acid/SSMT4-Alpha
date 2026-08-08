@@ -175,7 +175,7 @@ export class AppSettings {
 	// works with DeepSeek out of the box and any compatible provider.
 	xianzunApiKey: string = ''
 	xianzunApiUrl: string = 'https://api.deepseek.com/v1'
-	xianzunModel: string = 'deepseek-chat'
+	xianzunModel: string = 'deepseek-v4-flash'
 	xianzunSystemPrompt: string = ''
 
 	constructor(init?: Partial<AppSettings>) {
@@ -235,7 +235,15 @@ export class AppSettings {
 		this.nexusModsGameDomain = init?.nexusModsGameDomain?.trim().toLowerCase() ?? this.nexusModsGameDomain
 		this.xianzunApiKey = init?.xianzunApiKey ?? this.xianzunApiKey
 		this.xianzunApiUrl = init?.xianzunApiUrl?.trim() || this.xianzunApiUrl
-		this.xianzunModel = init?.xianzunModel?.trim() || this.xianzunModel
+		// Normalize legacy model names (deepseek-flash / deepseek-pro) to the
+		// current v4 naming so persisted settings keep working.
+		const savedXianzunModel = init?.xianzunModel?.trim()
+		this.xianzunModel =
+			savedXianzunModel === 'deepseek-flash' || savedXianzunModel === 'deepseek-pro'
+				? savedXianzunModel === 'deepseek-pro'
+					? 'deepseek-v4-pro'
+					: 'deepseek-v4-flash'
+				: savedXianzunModel || this.xianzunModel
 		this.xianzunSystemPrompt = init?.xianzunSystemPrompt ?? this.xianzunSystemPrompt
 		// VersionNumber is always controlled by current app code version,
 		// not by persisted settings.json.

@@ -263,6 +263,7 @@
     "welcomeTitle": "Hi, I'm XianZun",
     "welcomeDesc": "The AI agent inside SSMT4. Chat, code, translate — or let me drive the app through registered commands.",
     "capabilities": "Registered commands",
+    "taskPlan": "Task plan",
     "settings": "Settings",
     "settingsTitle": "XianZun Settings",
     "apiKey": "API Key",
