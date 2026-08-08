@@ -289,7 +289,8 @@
       "Introduce yourself",
       "Write some TypeScript for me",
       "Translate this into English",
-      "List the commands you can call"
+      "List the commands you can call",
+      "Show me an image"
     ]
   },
   "settings": {

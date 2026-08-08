@@ -22,6 +22,8 @@ import { mcpTools, validateToolArgs, MCP_CATEGORY_LABELS } from '../../store/Xia
 import type { McpTool, RiskLevel } from '../../store/XianZunMcp'
 import { buildCapabilityTools } from '../../store/XianZunCapabilities'
 import type { CapabilityTool } from '../../store/XianZunCapabilities'
+import { webTools } from '../../store/XianZunWebTools'
+import { agentTools } from '../../store/XianZunAgentTools'
 import { useResourceManagerStore } from '../../store/ResourceManager'
 import { useModManagerStore } from '../../store/ModManager'
 import { useModTagStore } from '../../store/ModTagStore'
@@ -210,7 +212,13 @@ const capabilityTools = buildCapabilityTools({
   modStateStore: useModStateStore() as unknown as Record<string, unknown>,
   gameConfig: useGameConfigStore() as unknown as Record<string, unknown>,
 })
-const commands: XianZunCommand[] = [...uiCommands, ...mcpTools, ...capabilityTools]
+const commands: XianZunCommand[] = [
+  ...uiCommands,
+  ...mcpTools,
+  ...capabilityTools,
+  ...webTools,
+  ...agentTools,
+]
 
 /* ═══════════════════════════════════════════════
    Chat state
@@ -222,6 +230,7 @@ const isStreaming = ref(false)
 const settingsOpen = ref(false)
 const testing = ref(false)
 const expandedTools = ref<string[]>([])
+const previewImage = ref('')
 const inputRef = ref<HTMLTextAreaElement | null>(null)
 const chatListRef = ref<HTMLElement | null>(null)
 let abortController: AbortController | null = null
@@ -327,6 +336,8 @@ const buildSystemPrompt = (): string => {
     '你是「小尊小尊」(XianZun),SSMT4 模型工具内置的 AI 智能体。你亲切、专业、表达简洁,始终使用用户提问所用的语言回复。',
     '',
     '你拥有操控整个应用的能力(如同自己的手臂):不仅能调用下方精确注册的指令,还能调用前端全部模块函数(自动注册,名称格式为 模块.函数,例如 ResourceManager.loadGameConfig、ModManager.toggleMod、MigotoManager.switchD3d11Mode、PathHelper.GetCurrentGame3DmigotoFolderPath)。',
+    '你还可以直接访问 GameBanana(无需浏览器):用 gamebanana_search_mods 按关键词搜索 Mod、gamebanana_get_categories 查看分类、gamebanana_get_mod_detail 查看 Mod 的截图/描述/下载链接。找到合适的 Mod 时,用 markdown 图片语法展示预览图给用户,并询问是否安装;用户同意后调用 gamebanana_download_and_install_mod 完成下载安装。',
+    '你拥有通用 agent 能力:run_shell_command 可以执行任意 PowerShell 命令(读取文件内容、目录遍历、进程/服务查询、运行脚本等,需要用户确认);read_text_file / list_directory / file_exists 可以查看本机文件;fetch_webpage 可以抓取任意网页文本(如文档、GitHub 页面)。',
     '',
     '精确注册的指令(参数键名必须与指令参数名一致):',
     commandList,
@@ -338,6 +349,7 @@ const buildSystemPrompt = (): string => {
     '- 缺少必需参数(如 installDir、frameAnalysisFolder、drawIb hash、downloadUrl 等用户才知道的信息)时,不要猜测或编造,先向用户提问,补齐后再调用。',
     '- 标记 [写] 或 [危险] 的指令会弹出确认框征求用户同意;若用户拒绝(返回"用户拒绝"),不要硬重试,改为向用户说明或换一种方案。',
     '- 调用可能耗时较长的命令(下载、全量提取、扫描)前,先告诉用户你正在做什么。',
+    '- 你支持 Markdown 富文本输出:可以嵌入图片(![描述](图片URL))、超链接([文字](URL))、代码块、表格、列表等。需要给用户看图(如 Mod 预览图、提取结果、参考图)时,直接用图片语法展示;引用外部资料时,用超链接。图片 URL 必须以 https:// 或 http:// 开头。',
     '- 严禁编造指令执行结果;只有收到工具返回后才可以引用其结果。',
   ].join('\n')
 
@@ -737,11 +749,30 @@ const onChatContentClick = (event: MouseEvent) => {
     if (payload) void copyText(decodeURIComponent(payload))
     return
   }
+  const img = target.closest('[data-img]') as HTMLElement | null
+  if (img) {
+    const src = img.dataset.img ?? ''
+    if (src) previewImage.value = decodeURIComponent(src)
+    return
+  }
   const link = target.closest('[data-href]') as HTMLElement | null
   if (link) {
     const href = link.dataset.href ?? ''
     if (href) void openUrl(decodeURIComponent(href))
   }
+}
+
+const onChatContentError = (event: Event) => {
+  // Images that fail to load (broken URL, offline) are hidden instead of
+  // showing a broken-image icon.
+  const img = event.target as HTMLImageElement | null
+  if (img && img.classList.contains('xz-img')) {
+    img.style.display = 'none'
+  }
+}
+
+const closePreview = () => {
+  previewImage.value = ''
 }
 
 const escapeHtml = (value: string): string =>
@@ -756,6 +787,12 @@ const renderInline = (value: string): string => {
   let out = value
   // inline code (content already escaped — protect it from other transforms)
   out = out.replace(/`([^`]+)`/g, '<code class="xz-inline-code">$1</code>')
+  // markdown images — ![alt](url), must run before the link rule
+  out = out.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (_m, alt: string, href: string) => {
+    const decoded = href.replace(/&amp;/g, '&')
+    const altText = escapeHtml((alt || 'image').trim())
+    return `<img class="xz-img" src="${escapeHtml(decoded)}" alt="${altText}" loading="lazy" data-img="${encodeURIComponent(decoded)}">`
+  })
   // markdown links
   out = out.replace(
     /\[([^\]]+)\]\(([^)\s]+)\)/g,
@@ -764,6 +801,11 @@ const renderInline = (value: string): string => {
       return `<a href="#" class="xz-link" data-href="${encodeURIComponent(decoded)}">${label}</a>`
     },
   )
+  // bare URLs → clickable links (skip anything already inside a tag)
+  out = out.replace(/https?:\/\/[^\s<]+(?![^<>]*>)/g, (url) => {
+    const decoded = url.replace(/&amp;/g, '&')
+    return `<a href="#" class="xz-link" data-href="${encodeURIComponent(decoded)}">${url}</a>`
+  })
   // bold / italic / strikethrough
   out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
   out = out.replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, '<em>$1</em>')
@@ -1017,6 +1059,8 @@ onMounted(() => {
         >
           <el-option label="deepseek-chat" value="deepseek-chat" />
           <el-option label="deepseek-reasoner" value="deepseek-reasoner" />
+          <el-option label="deepseek-flash" value="deepseek-flash" />
+          <el-option label="deepseek-pro" value="deepseek-pro" />
         </el-select>
 
         <el-tooltip :content="t('xianzun.settings')" placement="bottom" :show-after="250">
@@ -1090,7 +1134,7 @@ onMounted(() => {
           <div v-if="msg.role !== 'user'" class="xz-mini-avatar" aria-hidden="true">尊</div>
 
           <div class="xz-msg-main">
-            <div class="xz-bubble" :class="{ error: msg.role === 'error' }" @click="onChatContentClick">
+            <div class="xz-bubble" :class="{ error: msg.role === 'error' }" @click="onChatContentClick" @error.capture="onChatContentError">
               <!-- User text is plain; assistant content is markdown -->
               <template v-if="msg.role === 'user' || msg.role === 'error'">
                 <div class="xz-plain-text">{{ msg.content }}</div>
@@ -1180,6 +1224,20 @@ onMounted(() => {
       </div>
     </footer>
 
+    <!-- ═══ Image lightbox ═══ -->
+    <transition name="xz-fade">
+      <div
+        v-if="previewImage"
+        class="xz-lightbox"
+        @click.self="closePreview"
+        @keydown.esc="closePreview"
+        tabindex="-1"
+      >
+        <img :src="previewImage" class="xz-lightbox-img" alt="preview" @click.stop />
+        <button type="button" class="xz-lightbox-close" @click="closePreview">✕</button>
+      </div>
+    </transition>
+
     <!-- ═══ Settings dialog ═══ -->
     <el-dialog
       v-model="settingsOpen"
@@ -1215,6 +1273,8 @@ onMounted(() => {
           >
             <el-option label="deepseek-chat" value="deepseek-chat" />
             <el-option label="deepseek-reasoner" value="deepseek-reasoner" />
+            <el-option label="deepseek-flash" value="deepseek-flash" />
+            <el-option label="deepseek-pro" value="deepseek-pro" />
           </el-select>
         </label>
 
@@ -2052,6 +2112,19 @@ onMounted(() => {
   cursor: pointer;
 }
 
+.xz-markdown img.xz-img {
+  display: block;
+  max-width: 100%;
+  max-height: 380px;
+  margin: 10px 0;
+  border-radius: 12px;
+  border: 1px solid rgba(var(--theme-surface-tint-rgb), 0.16);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+  cursor: zoom-in;
+  object-fit: contain;
+  background: rgba(0, 0, 0, 0.25);
+}
+
 .xz-markdown code.xz-inline-code {
   padding: 1px 6px;
   border-radius: 5px;
@@ -2151,5 +2224,57 @@ onMounted(() => {
   line-height: 1.65;
   color: rgba(255, 255, 255, 0.9);
   user-select: text;
+}
+
+/* image lightbox (template element, global for overlay) */
+.xz-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.82);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  cursor: zoom-out;
+}
+
+.xz-lightbox-img {
+  max-width: min(92vw, 1400px);
+  max-height: 88vh;
+  border-radius: 12px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+  object-fit: contain;
+  user-select: none;
+}
+
+.xz-lightbox-close {
+  position: absolute;
+  top: 18px;
+  right: 22px;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(0, 0, 0, 0.5);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 14px;
+  cursor: pointer;
+  transition: background-color 140ms ease;
+}
+
+.xz-lightbox-close:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.xz-fade-enter-active,
+.xz-fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.xz-fade-enter-from,
+.xz-fade-leave-to {
+  opacity: 0;
 }
 </style>
