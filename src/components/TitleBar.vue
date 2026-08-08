@@ -42,6 +42,7 @@ const allNavItems = ref<NavItem[]>([
     { id: 'mods', path: '/mods', labelKey: 'titlebar.nav.mods', iconType: 'mods' },
     { id: 'gamebanana', path: '/gamebanana', labelKey: 'titlebar.nav.gameBanana', iconType: 'gamebanana' },
     { id: 'nexusmods', path: '/nexusmods', labelKey: 'titlebar.nav.nexusMods', iconType: 'nexusmods' },
+    { id: 'xianzun', path: '/xianzun', labelKey: 'titlebar.nav.xianzun', iconType: 'xianzun' },
 ]);
 
 // Current order of IDs
@@ -295,6 +296,8 @@ const togglePin = async () => {
                 <svg v-if="item.id === 'gamebanana'" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4h10l2 4-2 12H7L5 8l2-4z"></path><path d="M9 4l1 4h4l1-4"></path><path d="M9 12h6"></path><path d="M10 16h4"></path></svg>
 
                 <svg v-if="item.id === 'nexusmods'" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4h12v16H6z"></path><path d="M9 8h6"></path><path d="M9 12h6"></path><path d="M9 16h4"></path></svg>
+
+                <svg v-if="item.id === 'xianzun'" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path><path d="M8.5 11h7"></path><path d="M8.5 14.5h4"></path></svg>
 
                 <svg v-if="item.id === 'work'" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
                     <rect x="4" y="4" width="16" height="16" rx="3"></rect>

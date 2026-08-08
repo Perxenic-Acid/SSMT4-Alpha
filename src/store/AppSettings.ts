@@ -38,6 +38,17 @@ const normalizeGameBananaTranslationProvider = (value: unknown): GameBananaTrans
 		: 'openai'
 }
 
+const REASONING_EFFORTS = ['auto', 'off', 'low', 'medium', 'high', 'max'] as const
+
+export type XianZunReasoningEffort = (typeof REASONING_EFFORTS)[number]
+
+export const REASONING_EFFORT_OPTIONS = [...REASONING_EFFORTS]
+
+const normalizeReasoningEffort = (value: unknown): XianZunReasoningEffort =>
+	typeof value === 'string' && (REASONING_EFFORTS as readonly string[]).includes(value)
+		? (value as XianZunReasoningEffort)
+		: 'auto'
+
 const normalizeSidebarGameOrder = (value: unknown): string[] => {
 	if (!Array.isArray(value)) {
 		return []
@@ -171,6 +182,13 @@ export class AppSettings {
 	// "skyrimspecialedition"), rather than GameBanana's numeric game ID.
 	nexusModsApiKey: string = ''
 	nexusModsGameDomain: string = ''
+	// XianZun (小尊小尊) — AI chat agent. OpenAI-compatible endpoint, so it
+	// works with DeepSeek out of the box and any compatible provider.
+	xianzunApiKey: string = ''
+	xianzunApiUrl: string = 'https://api.deepseek.com/v1'
+	xianzunModel: string = 'deepseek-v4-flash'
+	xianzunSystemPrompt: string = ''
+	xianzunReasoningEffort: XianZunReasoningEffort = 'auto'
 
 	constructor(init?: Partial<AppSettings>) {
 		if (init) {
@@ -227,6 +245,19 @@ export class AppSettings {
 		this.showWindowShortcutEnabled = init?.showWindowShortcutEnabled ?? this.showWindowShortcutEnabled
 		this.nexusModsApiKey = init?.nexusModsApiKey ?? this.nexusModsApiKey
 		this.nexusModsGameDomain = init?.nexusModsGameDomain?.trim().toLowerCase() ?? this.nexusModsGameDomain
+		this.xianzunApiKey = init?.xianzunApiKey ?? this.xianzunApiKey
+		this.xianzunApiUrl = init?.xianzunApiUrl?.trim() || this.xianzunApiUrl
+		// Normalize legacy model names (deepseek-flash / deepseek-pro) to the
+		// current v4 naming so persisted settings keep working.
+		const savedXianzunModel = init?.xianzunModel?.trim()
+		this.xianzunModel =
+			savedXianzunModel === 'deepseek-flash' || savedXianzunModel === 'deepseek-pro'
+				? savedXianzunModel === 'deepseek-pro'
+					? 'deepseek-v4-pro'
+					: 'deepseek-v4-flash'
+				: savedXianzunModel || this.xianzunModel
+		this.xianzunSystemPrompt = init?.xianzunSystemPrompt ?? this.xianzunSystemPrompt
+		this.xianzunReasoningEffort = normalizeReasoningEffort(init?.xianzunReasoningEffort)
 		// VersionNumber is always controlled by current app code version,
 		// not by persisted settings.json.
 		this.VersionNumber = AppSettings.CURRENT_VERSION
@@ -287,6 +318,11 @@ export class AppSettings {
 			showWindowShortcutEnabled: this.showWindowShortcutEnabled,
 			nexusModsApiKey: this.nexusModsApiKey,
 			nexusModsGameDomain: this.nexusModsGameDomain,
+			xianzunApiKey: this.xianzunApiKey,
+			xianzunApiUrl: this.xianzunApiUrl,
+			xianzunModel: this.xianzunModel,
+			xianzunSystemPrompt: this.xianzunSystemPrompt,
+			xianzunReasoningEffort: this.xianzunReasoningEffort,
 		}
 	}
 }
