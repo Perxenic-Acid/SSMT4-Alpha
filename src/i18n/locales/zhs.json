@@ -279,6 +279,14 @@
     },
     "reasoningEffort": "推理强度",
     "reasoningEffortHint": "auto 由端点决定;其他值会作为 reasoning_effort 发送给模型(需端点支持,否则保持 auto)",
+    "approvalMode": "敏感操作审批",
+    "approvalModeHint": "配置更改会在下一轮对话回合生效",
+    "approvalModes": {
+      "manual": "手动审批",
+      "auto": "自动审批(独立模型审核)",
+      "none": "无审批(不受限制)"
+    },
+    "noApprovalWarning": "警告:敏感操作将不经审批直接执行",
     "viewSystemPrompt": "查看系统提示词",
     "systemPromptTitle": "当前系统提示词",
     "promptEmpty": "(尚未发送过请求,首次对话时会生成提示词)",
@@ -308,6 +316,7 @@
     "allow": "允许执行",
     "reject": "拒绝",
     "userRejected": "用户拒绝了此操作。请不要重试,改为向用户说明或换一种方案。",
+    "autoRejected": "自动审批未通过,操作未执行。请不要重试,并向用户说明拒绝原因。",
     "suggestions": [
       "介绍一下你自己吧",
       "帮我写一段 TypeScript 代码",

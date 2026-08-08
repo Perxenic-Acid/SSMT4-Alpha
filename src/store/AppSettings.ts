@@ -62,10 +62,21 @@ export type XianZunReasoningEffort = (typeof REASONING_EFFORTS)[number]
 
 export const REASONING_EFFORT_OPTIONS = [...REASONING_EFFORTS]
 
+const XIANZUN_APPROVAL_MODES = ['manual', 'auto', 'none'] as const
+
+export type XianZunApprovalMode = (typeof XIANZUN_APPROVAL_MODES)[number]
+
+export const XIANZUN_APPROVAL_MODE_OPTIONS = [...XIANZUN_APPROVAL_MODES]
+
 const normalizeReasoningEffort = (value: unknown): XianZunReasoningEffort =>
 	typeof value === 'string' && (REASONING_EFFORTS as readonly string[]).includes(value)
 		? (value as XianZunReasoningEffort)
 		: 'auto'
+
+const normalizeXianZunApprovalMode = (value: unknown): XianZunApprovalMode =>
+	typeof value === 'string' && (XIANZUN_APPROVAL_MODES as readonly string[]).includes(value)
+		? (value as XianZunApprovalMode)
+		: 'manual'
 
 const normalizeSidebarGameOrder = (value: unknown): string[] => {
 	if (!Array.isArray(value)) {
@@ -208,6 +219,7 @@ export class AppSettings {
 	xianzunModel: string = 'deepseek-v4-flash'
 	xianzunSystemPrompt: string = ''
 	xianzunReasoningEffort: XianZunReasoningEffort = 'auto'
+	xianzunApprovalMode: XianZunApprovalMode = 'manual'
 
 	constructor(init?: Partial<AppSettings>) {
 		if (init) {
@@ -278,6 +290,7 @@ export class AppSettings {
 				: savedXianzunModel || this.xianzunModel
 		this.xianzunSystemPrompt = init?.xianzunSystemPrompt ?? this.xianzunSystemPrompt
 		this.xianzunReasoningEffort = normalizeReasoningEffort(init?.xianzunReasoningEffort)
+		this.xianzunApprovalMode = normalizeXianZunApprovalMode(init?.xianzunApprovalMode)
 		// VersionNumber is always controlled by current app code version,
 		// not by persisted settings.json.
 		this.VersionNumber = AppSettings.CURRENT_VERSION
@@ -344,6 +357,7 @@ export class AppSettings {
 			xianzunModel: this.xianzunModel,
 			xianzunSystemPrompt: this.xianzunSystemPrompt,
 			xianzunReasoningEffort: this.xianzunReasoningEffort,
+			xianzunApprovalMode: this.xianzunApprovalMode,
 		}
 	}
 }
