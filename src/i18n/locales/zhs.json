@@ -278,6 +278,13 @@
     "done": "完成",
     "missingKey": "还没有配置 API Key,请先在设置中填写。",
     "errorPrefix": "出错了",
+    "confirmWrite": "写入操作确认",
+    "confirmWriteContent": "小尊想要执行写入操作:\n{command}\n参数:{args}\n\n确认允许吗?",
+    "confirmDanger": "⚠ 危险操作确认",
+    "confirmDangerContent": "小尊想要执行危险操作(可能不可逆或删除数据):\n{command}\n参数:{args}\n\n请谨慎确认!",
+    "allow": "允许执行",
+    "reject": "拒绝",
+    "userRejected": "用户拒绝了此操作。请不要重试,改为向用户说明或换一种方案。",
     "suggestions": [
       "介绍一下你自己吧",
       "帮我写一段 TypeScript 代码",

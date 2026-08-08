@@ -18,6 +18,16 @@ import { writeText } from '@tauri-apps/plugin-clipboard-manager'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import { getVersion } from '@tauri-apps/api/app'
 import { AppStateManager } from '../../store/AppStateManager'
+import { mcpTools, validateToolArgs, MCP_CATEGORY_LABELS } from '../../store/XianZunMcp'
+import type { McpTool, RiskLevel } from '../../store/XianZunMcp'
+import { buildCapabilityTools } from '../../store/XianZunCapabilities'
+import type { CapabilityTool } from '../../store/XianZunCapabilities'
+import { useResourceManagerStore } from '../../store/ResourceManager'
+import { useModManagerStore } from '../../store/ModManager'
+import { useModTagStore } from '../../store/ModTagStore'
+import { useModPresetStore } from '../../store/ModPresetStore'
+import { useModStateStore } from '../../store/ModStateStore'
+import { useGameConfigStore } from '../../store/GameConfig'
 
 /* ═══════════════════════════════════════════════
    Types
@@ -47,6 +57,7 @@ interface XianZunCommand {
     properties: Record<string, { type: string; description: string; enum?: string[] }>
     required: string[]
   }
+  risk?: RiskLevel
   execute: (args: Record<string, unknown>) => string | Promise<string>
 }
 
@@ -64,13 +75,15 @@ const router = useRouter()
 const { t } = useI18n()
 
 const STORAGE_KEY = 'xianzun.messages.v1'
-const MAX_TOOL_ROUNDS = 4
+const MAX_TOOL_ROUNDS = 10
 const STREAM_TEMPERATURE = 0.8
 
 /* ═══════════════════════════════════════════════
    Command registry — every app capability is
    registered here as an MCP-style tool schema so
-   the agent can discover and call it.
+   the agent can discover and call it. UI commands
+   live below; all 39 Tauri commands come from
+   XianZunMcp.ts (invoke-backed MCP tools).
    ═══════════════════════════════════════════════ */
 
 const PAGE_MAP: Record<string, string> = {
@@ -91,7 +104,7 @@ const stringProp = (description: string, enumValues?: string[]) => ({
   ...(enumValues ? { enum: enumValues } : {}),
 })
 
-const commands: XianZunCommand[] = [
+const uiCommands: XianZunCommand[] = [
   {
     name: 'navigate_to_page',
     description: '跳转到 SSMT4 的指定页面:主页、游戏库、模组管理、GameBanana、NexusMods、工作台、提取后处理、设置、小尊小尊。',
@@ -136,12 +149,43 @@ const commands: XianZunCommand[] = [
   },
   {
     name: 'list_capabilities',
-    description: '列出小尊小尊当前可以调用的全部指令(名称、说明、参数)。',
+    description: '列出小尊小尊当前可以调用的全部指令(名称、参数、风险级别)。自动注册的模块函数名称格式为 模块.函数,调用前可先用本指令查询。',
     inputSchema: { type: 'object', properties: {}, required: [] },
     execute: () => {
       return commands
-        .map((c) => `${c.name}: ${c.description} 参数: ${JSON.stringify(c.inputSchema)}`)
+        .map(
+          (c) =>
+            `${c.name}(${c.inputSchema.required.join(', ')})${c.risk && c.risk !== 'read' ? ` [${c.risk}]` : ''}: ${c.description}`,
+        )
         .join('\n')
+    },
+  },
+  {
+    name: 'get_tool_schema',
+    description: '查询某个指令的完整参数 schema(必填/可选参数、参数说明、风险级别)。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        toolName: stringProp('要查询的指令名称'),
+      },
+      required: ['toolName'],
+    },
+    execute: (args) => {
+      const toolName = String(args.toolName ?? '').trim()
+      const target = commands.find((c) => c.name === toolName)
+      if (!target) {
+        return `未知指令: ${toolName}。可用:list_capabilities 查询全部。`
+      }
+      return JSON.stringify(
+        {
+          name: target.name,
+          description: target.description,
+          risk: target.risk ?? 'read',
+          inputSchema: target.inputSchema,
+        },
+        null,
+        2,
+      )
     },
   },
   {
@@ -155,6 +199,18 @@ const commands: XianZunCommand[] = [
     },
   },
 ]
+
+// UI commands + all Tauri commands (MCP tools) + every frontend
+// module function (auto-registered capabilities).
+const capabilityTools = buildCapabilityTools({
+  resourceManager: useResourceManagerStore() as unknown as Record<string, unknown>,
+  modManager: useModManagerStore() as unknown as Record<string, unknown>,
+  modTagStore: useModTagStore() as unknown as Record<string, unknown>,
+  modPresetStore: useModPresetStore() as unknown as Record<string, unknown>,
+  modStateStore: useModStateStore() as unknown as Record<string, unknown>,
+  gameConfig: useGameConfigStore() as unknown as Record<string, unknown>,
+})
+const commands: XianZunCommand[] = [...uiCommands, ...mcpTools, ...capabilityTools]
 
 /* ═══════════════════════════════════════════════
    Chat state
@@ -199,6 +255,21 @@ const suggestionList = computed(() => {
   return Array.isArray(raw) ? (raw as string[]) : []
 })
 
+const capabilityGroups = computed(() => {
+  const groups = new Map<string, XianZunCommand[]>()
+  for (const cmd of commands) {
+    const key = (cmd as McpTool | CapabilityTool).category ?? 'other'
+    const bucket = groups.get(key)
+    if (bucket) bucket.push(cmd)
+    else groups.set(key, [cmd])
+  }
+  return Array.from(groups.entries()).map(([key, tools]) => ({
+    key,
+    label: MCP_CATEGORY_LABELS[key] ?? key,
+    tools,
+  }))
+})
+
 /* ═══════════════════════════════════════════════
    Persistence
    ═══════════════════════════════════════════════ */
@@ -237,20 +308,36 @@ const loadMessages = () => {
    ═══════════════════════════════════════════════ */
 
 const buildSystemPrompt = (): string => {
-  const commandList = commands
-    .map((c) => `- ${c.name}: ${c.description} 参数: ${JSON.stringify(c.inputSchema)}`)
+  // Precise tools (UI + Tauri commands) are listed inline; auto-registered
+  // module functions are discovered on demand via list_capabilities to keep
+  // the system prompt compact.
+  const commandList = [...uiCommands, ...mcpTools]
+    .map((c) => {
+      const requiredParams = c.inputSchema.required.join(', ')
+      const optionalParams = Object.keys(c.inputSchema.properties).filter(
+        (key) => !c.inputSchema.required.includes(key),
+      )
+      const optionalText = optionalParams.length > 0 ? `, 可选:${optionalParams.join(', ')}` : ''
+      const riskText = c.risk && c.risk !== 'read' ? ` [${c.risk === 'danger' ? '危险' : '写'}]` : ''
+      return `- ${c.name}(${requiredParams}${optionalText})${riskText}: ${c.description}`
+    })
     .join('\n')
 
   const base = [
     '你是「小尊小尊」(XianZun),SSMT4 模型工具内置的 AI 智能体。你亲切、专业、表达简洁,始终使用用户提问所用的语言回复。',
     '',
-    '你可以调用以下指令来操作当前应用(指令以 MCP 风格的 schema 注册):',
+    '你拥有操控整个应用的能力(如同自己的手臂):不仅能调用下方精确注册的指令,还能调用前端全部模块函数(自动注册,名称格式为 模块.函数,例如 ResourceManager.loadGameConfig、ModManager.toggleMod、MigotoManager.switchD3d11Mode、PathHelper.GetCurrentGame3DmigotoFolderPath)。',
+    '',
+    '精确注册的指令(参数键名必须与指令参数名一致):',
     commandList,
     '',
     '调用规则:',
-    '- 当你需要操作应用(跳转页面、查询状态、清空对话等)时,在回复中输出一个语言标记为 tool_call 的 fenced code block,内容为一个 JSON 对象: {"command":"指令名","arguments":{...}}',
-    '- 指令执行结果会作为下一条消息返回给你。请根据结果继续,直到任务完成为止,最后给用户一个清晰、友好的总结。',
-    '- 如果不需要调用指令,直接正常回复用户即可。',
+    '- 当你需要操作应用时,在回复中输出一个语言标记为 tool_call 的 fenced code block,内容为 JSON: {"command":"指令名","arguments":{...}}。',
+    '- 对自动注册的模块函数,先用 list_capabilities 查看函数名与参数,再用 get_tool_schema 查看详细参数说明,然后调用。',
+    '- 你可以自由组合多个指令完成复杂任务(例如:扫描 Mod 库 → 从 GameBanana 下载指定类型 Mod → 安装 → 打标签 → 启动游戏),每一步的执行结果都会回传给你,根据结果决定下一步。',
+    '- 缺少必需参数(如 installDir、frameAnalysisFolder、drawIb hash、downloadUrl 等用户才知道的信息)时,不要猜测或编造,先向用户提问,补齐后再调用。',
+    '- 标记 [写] 或 [危险] 的指令会弹出确认框征求用户同意;若用户拒绝(返回"用户拒绝"),不要硬重试,改为向用户说明或换一种方案。',
+    '- 调用可能耗时较长的命令(下载、全量提取、扫描)前,先告诉用户你正在做什么。',
     '- 严禁编造指令执行结果;只有收到工具返回后才可以引用其结果。',
   ].join('\n')
 
@@ -401,6 +488,44 @@ const executeCommand = async (call: {
       ok: false,
     }
   }
+
+  // Validate required args first — a missing value should make the
+  // agent ask the user instead of guessing (e.g. paths or hashes).
+  const validation = validateToolArgs(cmd.inputSchema, call.arguments)
+  if (!validation.ok) {
+    return {
+      command: cmd.name,
+      arguments: call.arguments ?? {},
+      result: validation.message,
+      ok: false,
+    }
+  }
+
+  // Risk gate — write/danger operations need explicit user approval.
+  const risk = cmd.risk ?? 'read'
+  if (risk === 'write' || risk === 'danger') {
+    const isDanger = risk === 'danger'
+    try {
+      await ElMessageBox.confirm(
+        isDanger ? t('xianzun.confirmDangerContent', { command: cmd.name, args: JSON.stringify(call.arguments ?? {}) }) : t('xianzun.confirmWriteContent', { command: cmd.name, args: JSON.stringify(call.arguments ?? {}) }),
+        isDanger ? t('xianzun.confirmDanger') : t('xianzun.confirmWrite'),
+        {
+          type: isDanger ? 'error' : 'warning',
+          confirmButtonText: t('xianzun.allow'),
+          cancelButtonText: t('xianzun.reject'),
+          closeOnClickModal: false,
+        },
+      )
+    } catch {
+      return {
+        command: cmd.name,
+        arguments: call.arguments ?? {},
+        result: t('xianzun.userRejected'),
+        ok: false,
+      }
+    }
+  }
+
   try {
     const result = await cmd.execute(call.arguments ?? {})
     return { command: cmd.name, arguments: call.arguments ?? {}, result: String(result), ok: true }
@@ -936,12 +1061,19 @@ onMounted(() => {
           <div class="xz-capabilities-head">
             <el-icon><ChatDotRound /></el-icon>
             <span>{{ t('xianzun.capabilities') }}</span>
-            <span class="xz-capabilities-badge">MCP</span>
+            <span class="xz-capabilities-badge">MCP · {{ commands.length }}</span>
           </div>
-          <div class="xz-capabilities-grid">
-            <div v-for="cmd in commands" :key="cmd.name" class="xz-capability-card">
-              <code class="xz-capability-name">{{ cmd.name }}</code>
-              <span class="xz-capability-desc">{{ cmd.description }}</span>
+          <div v-for="group in capabilityGroups" :key="group.key" class="xz-capability-group">
+            <div class="xz-capability-group-label">{{ group.label }} · {{ group.tools.length }}</div>
+            <div class="xz-capability-chips">
+              <span
+                v-for="cmd in group.tools"
+                :key="cmd.name"
+                class="xz-capability-chip"
+                :title="cmd.description"
+              >
+                {{ cmd.name }}
+              </span>
             </div>
           </div>
         </div>
@@ -1642,33 +1774,44 @@ onMounted(() => {
   background: rgba(var(--theme-success-rgb), 0.08);
 }
 
-.xz-capabilities-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-  gap: 10px;
-  margin-top: 12px;
+.xz-capability-group {
+  margin-top: 14px;
 }
 
-.xz-capability-card {
+.xz-capability-group-label {
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: rgba(var(--theme-text-secondary-rgb), 0.6);
+}
+
+.xz-capability-chips {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 11px 13px;
-  border-radius: 12px;
-  border: 1px solid rgba(var(--theme-surface-tint-rgb), 0.1);
-  background: rgba(var(--theme-surface-tint-rgb), 0.04);
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 7px;
+  max-height: 170px;
+  overflow-y: auto;
+  scrollbar-width: thin;
 }
 
-.xz-capability-name {
+.xz-capability-chip {
+  padding: 3px 9px;
+  border-radius: 999px;
   font-family: 'Cascadia Code', Consolas, monospace;
-  font-size: 12px;
-  color: rgba(var(--theme-text-primary-rgb), 0.92);
+  font-size: 10.5px;
+  color: rgba(var(--theme-text-secondary-rgb), 0.85);
+  background: rgba(var(--theme-surface-tint-rgb), 0.06);
+  border: 1px solid rgba(var(--theme-surface-tint-rgb), 0.1);
+  cursor: default;
+  transition: background-color 140ms ease, color 140ms ease, border-color 140ms ease;
 }
 
-.xz-capability-desc {
-  font-size: 11.5px;
-  line-height: 1.55;
-  color: rgba(var(--theme-text-secondary-rgb), 0.68);
+.xz-capability-chip:hover {
+  background: rgba(var(--theme-surface-tint-rgb), 0.12);
+  border-color: rgba(var(--theme-surface-tint-rgb), 0.22);
+  color: rgba(var(--theme-text-primary-rgb), 0.95);
 }
 
 /* ── Composer ── */
@@ -1823,10 +1966,6 @@ onMounted(() => {
 
   .xz-model-select {
     width: 140px;
-  }
-
-  .xz-capabilities-grid {
-    grid-template-columns: 1fr;
   }
 
   .xz-hint {

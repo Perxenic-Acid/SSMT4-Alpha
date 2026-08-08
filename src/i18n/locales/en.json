@@ -278,6 +278,13 @@
     "done": "Done",
     "missingKey": "No API key configured yet — add one in settings first.",
     "errorPrefix": "Something went wrong",
+    "confirmWrite": "Confirm write operation",
+    "confirmWriteContent": "XianZun wants to perform a write operation:\n{command}\nArguments: {args}\n\nAllow it?",
+    "confirmDanger": "⚠ Confirm dangerous operation",
+    "confirmDangerContent": "XianZun wants to perform a dangerous operation (possibly irreversible or deleting data):\n{command}\nArguments: {args}\n\nPlease confirm carefully!",
+    "allow": "Allow",
+    "reject": "Reject",
+    "userRejected": "The user rejected this operation. Do not retry it — explain to the user or try a different approach.",
     "suggestions": [
       "Introduce yourself",
       "Write some TypeScript for me",
