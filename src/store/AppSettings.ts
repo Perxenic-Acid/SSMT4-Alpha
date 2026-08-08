@@ -20,6 +20,24 @@ export type TextureMarkStylePreference = 'Hash' | 'Slot' | 'SharedSlot'
 export type GameBananaNsfwMode = 'show' | 'blur' | 'hide'
 export type GameBananaTranslationProvider = 'openai' | 'compatible' | 'claude' | 'deepseek' | 'gemini' | 'google'
 
+export const APP_UI_SCALE_MIN = 0.7
+export const APP_UI_SCALE_MAX = 1.2
+export const APP_UI_SCALE_STEP = 0.05
+
+export const normalizeAppUiScale = (value: unknown): number => {
+	if (value === null || value === undefined || value === '') {
+		return 1
+	}
+
+	const numericValue = typeof value === 'number' ? value : Number(value)
+	if (!Number.isFinite(numericValue)) {
+		return 1
+	}
+
+	const clampedValue = Math.min(APP_UI_SCALE_MAX, Math.max(APP_UI_SCALE_MIN, numericValue))
+	return Math.round(clampedValue / APP_UI_SCALE_STEP) * APP_UI_SCALE_STEP
+}
+
 const normalizeTextureMarkStylePreference = (
 	value: unknown
 ): TextureMarkStylePreference => {
@@ -142,6 +160,7 @@ export class AppSettings {
 	bgVideo: string = ''
 	contentOpacity: number = 0.5
 	globalDimMaskStrength: number = 2.5
+	uiScale: number = 1
 	DBMTWorkFolder: string = ''
 	CurrentGameName: string = 'Default'
 	githubToken: string = ''
@@ -202,6 +221,7 @@ export class AppSettings {
 		this.contentOpacity = init?.contentOpacity ?? this.contentOpacity
 
 		this.globalDimMaskStrength = init?.globalDimMaskStrength ?? this.globalDimMaskStrength
+		this.uiScale = normalizeAppUiScale(init?.uiScale)
 		this.DBMTWorkFolder = init?.DBMTWorkFolder ?? this.DBMTWorkFolder
 		this.CurrentGameName = init?.CurrentGameName ?? this.CurrentGameName
 		this.githubToken = init?.githubToken ?? this.githubToken
@@ -280,6 +300,7 @@ export class AppSettings {
 			bgVideo: this.bgVideo,
 			contentOpacity: this.contentOpacity,
 			globalDimMaskStrength: this.globalDimMaskStrength,
+			uiScale: this.uiScale,
 			DBMTWorkFolder: this.DBMTWorkFolder,
 			CurrentGameName: this.CurrentGameName,
 			githubToken: this.githubToken,

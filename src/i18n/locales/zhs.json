@@ -355,6 +355,8 @@
     },
     "personalization": {
       "textureMarkStyle": "贴图标记风格偏好",
+      "uiScale": "全局组件尺寸",
+      "uiScaleHint": "缩小界面组件以便在低分辨率或系统高缩放时显示更多内容。",
       "backgroundMaskOpacity": "背景压暗强度",
       "backgroundMaskOpacityHint": "调高后会压暗明亮背景，让玻璃面板更容易看清。",
       "language": "语言",

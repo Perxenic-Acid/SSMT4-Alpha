@@ -355,6 +355,8 @@
     },
     "personalization": {
       "textureMarkStyle": "Texture Marking Style Preference",
+      "uiScale": "Global UI Scale",
+      "uiScaleHint": "Reduce component size to fit more content on low-resolution or high-DPI-scaled displays.",
       "backgroundMaskOpacity": "Background Dimming Strength",
       "backgroundMaskOpacityHint": "Darken bright backgrounds so glass panels stay readable.",
       "language": "Language",
