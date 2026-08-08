@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -7,18 +7,22 @@ import {
   ChatDotRound,
   CopyDocument,
   Delete,
+  Document,
   Link as LinkIcon,
   List,
   MagicStick,
   Promotion,
   Setting,
+  Tickets,
   VideoPause,
 } from '@element-plus/icons-vue'
 import { fetch } from '@tauri-apps/plugin-http'
 import { writeText } from '@tauri-apps/plugin-clipboard-manager'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import { getVersion } from '@tauri-apps/api/app'
+import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { AppStateManager } from '../../store/AppStateManager'
+import { REASONING_EFFORT_OPTIONS } from '../../store/AppSettings'
 import { mcpTools, validateToolArgs, MCP_CATEGORY_LABELS } from '../../store/XianZunMcp'
 import type { McpTool, RiskLevel } from '../../store/XianZunMcp'
 import { buildCapabilityTools } from '../../store/XianZunCapabilities'
@@ -41,6 +45,7 @@ interface ChatMessage {
   id: string
   role: 'user' | 'assistant' | 'error'
   content: string
+  reasoning?: string
   streaming?: boolean
   createdAt: number
   toolEvents?: ToolEvent[]
@@ -51,6 +56,19 @@ interface ToolEvent {
   arguments: Record<string, unknown>
   result: string
   ok: boolean
+  durationMs?: number
+  status?: 'running' | 'done'
+  progress?: { current: number; total: number; stage: string; percent: number }
+}
+
+interface InstallProgressEvent {
+  gameName?: string
+  game_name?: string
+  modName?: string
+  mod_name?: string
+  stage?: string
+  current?: number
+  total?: number
 }
 
 interface XianZunCommand {
@@ -68,6 +86,172 @@ interface XianZunCommand {
 interface ApiMessage {
   role: 'system' | 'user' | 'assistant' | 'tool'
   content: string
+}
+
+/* ═══════════════════════════════════════════════
+   Runtime logs — every request, tool call, prompt
+   snapshot and error is recorded for full transparency.
+   ═══════════════════════════════════════════════ */
+
+type LogType = 'chat' | 'tool' | 'system' | 'error'
+
+interface LogEntry {
+  id: string
+  type: LogType
+  time: number
+  title: string
+  detail: string
+}
+
+const LOG_STORAGE_KEY = 'xianzun.logs.v1'
+const MAX_LOGS = 400
+const LOG_TABS = ['all', 'chat', 'tool', 'system', 'error'] as const
+type LogTab = (typeof LOG_TABS)[number]
+
+const logDrawerOpen = ref(false)
+const logActiveTab = ref<LogTab>('all')
+const runLogs = ref<LogEntry[]>([])
+const lastSystemPrompt = ref('')
+const reasoningOpenIds = ref<string[]>([])
+
+const logTypeLabel = (type: LogType): string => {
+  const labels: Record<LogType, string> = {
+    chat: t('xianzun.logType.chat'),
+    tool: t('xianzun.logType.tool'),
+    system: t('xianzun.logType.system'),
+    error: t('xianzun.logType.error'),
+  }
+  return labels[type]
+}
+
+const recordLog = (type: LogType, title: string, detail: string) => {
+  runLogs.value.push({ id: nextId(), type, time: Date.now(), title, detail })
+  if (runLogs.value.length > MAX_LOGS) {
+    runLogs.value.splice(0, runLogs.value.length - MAX_LOGS)
+  }
+  try {
+    localStorage.setItem(LOG_STORAGE_KEY, JSON.stringify(runLogs.value))
+  } catch {
+    // storage full — logs stay in memory
+  }
+}
+
+const loadLogs = () => {
+  try {
+    const raw = localStorage.getItem(LOG_STORAGE_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed)) {
+        runLogs.value = parsed.filter(
+          (l: unknown): l is LogEntry =>
+            !!l && typeof l === 'object' && typeof (l as LogEntry).title === 'string',
+        )
+      }
+    }
+    const prompt = localStorage.getItem('xianzun.lastSystemPrompt')
+    if (prompt) lastSystemPrompt.value = prompt
+  } catch {
+    // corrupt storage — start fresh
+  }
+}
+
+const clearLogs = async () => {
+  try {
+    await ElMessageBox.confirm(t('xianzun.logsClearConfirm'), t('xianzun.logs'), {
+      confirmButtonText: t('xianzun.logsClear'),
+      cancelButtonText: t('xianzun.cancel'),
+      type: 'warning',
+    })
+  } catch {
+    return
+  }
+  runLogs.value = []
+  try {
+    localStorage.removeItem(LOG_STORAGE_KEY)
+  } catch {
+    // ignore
+  }
+}
+
+const filteredLogs = computed(() => {
+  if (logActiveTab.value === 'all') return runLogs.value
+  return runLogs.value.filter((l) => l.type === logActiveTab.value)
+})
+
+const formatLogTime = (ts: number) => {
+  const d = new Date(ts)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
+
+const toggleReasoning = (msgId: string) => {
+  const idx = reasoningOpenIds.value.indexOf(msgId)
+  if (idx >= 0) reasoningOpenIds.value.splice(idx, 1)
+  else reasoningOpenIds.value.push(msgId)
+}
+
+const isReasoningOpen = (msgId: string) => reasoningOpenIds.value.includes(msgId)
+
+const copyLogs = async () => {
+  const lines = filteredLogs.value.map(
+    (log) => `[${formatLogTime(log.time)}] [${logTypeLabel(log.type)}] ${log.title}\n${log.detail}`,
+  )
+  if (lines.length === 0) {
+    await copyText(t('xianzun.logsEmpty'))
+    return
+  }
+  await copyText(lines.join('\n\n'))
+}
+
+/* ── Install/download progress (Tauri events) ── */
+let unlistenProgress: UnlistenFn[] = []
+
+const updateToolProgress = (payload: InstallProgressEvent) => {
+  const game = payload.gameName || payload.game_name || ''
+  const mod = payload.modName || payload.mod_name || ''
+  for (let i = messages.value.length - 1; i >= 0; i--) {
+    const msg = messages.value[i]
+    const events = msg.toolEvents
+    if (!events) continue
+    for (let j = events.length - 1; j >= 0; j--) {
+      const evt = events[j]
+      if (evt.status !== 'running') continue
+      const isInstall =
+        evt.command.includes('download_and_install') || evt.command === 'install_mod_archive'
+      if (!isInstall) continue
+      const args = evt.arguments as Record<string, unknown>
+      const matchGame = !game || String(args.gameName ?? '') === game
+      const matchMod = !mod || String(args.targetName ?? '') === mod
+      if (matchGame && matchMod) {
+        const current = payload.current ?? 0
+        const total = payload.total ?? 0
+        const percent = total > 0 ? Math.min(100, (current / total) * 100) : 0
+        evt.progress = {
+          current,
+          total,
+          stage: String(payload.stage ?? ''),
+          percent,
+        }
+        return
+      }
+    }
+  }
+}
+
+const setupProgressListeners = async () => {
+  if (unlistenProgress.length > 0) return
+  try {
+    unlistenProgress = [
+      await listen<InstallProgressEvent>('gamebanana-install-progress', (event) =>
+        updateToolProgress(event.payload),
+      ),
+      await listen<InstallProgressEvent>('mod-install-progress', (event) =>
+        updateToolProgress(event.payload),
+      ),
+    ]
+  } catch (err) {
+    console.warn('Failed to listen for install progress events:', err)
+  }
 }
 
 /* ═══════════════════════════════════════════════
@@ -319,10 +503,13 @@ const settingsOpen = ref(false)
 const testing = ref(false)
 const expandedTools = ref<string[]>([])
 const previewImage = ref('')
+const promptDialogOpen = ref(false)
 const inputRef = ref<HTMLTextAreaElement | null>(null)
 const chatListRef = ref<HTMLElement | null>(null)
 let abortController: AbortController | null = null
 let idCounter = 0
+const toolRunning = ref(false)
+const stopAfterTool = ref(false)
 
 const nextId = () => `xz-${Date.now()}-${idCounter++}`
 
@@ -333,7 +520,7 @@ const lastAssistant = computed(() => {
   return null
 })
 
-const waitingFirstToken = computed(() => isStreaming.value && !lastAssistant.value?.content)
+const waitingFirstToken = computed(() => isStreaming.value && !lastAssistant.value?.content && !lastAssistant.value?.reasoning)
 
 const statusText = computed(() => {
   if (isStreaming.value) return t('xianzun.streaming')
@@ -432,7 +619,7 @@ const buildSystemPrompt = (): string => {
     commandList,
     '',
     '调用规则:',
-    '- 当你需要操作应用时,在回复中输出一个语言标记为 tool_call 的 fenced code block,内容为 JSON: {"command":"指令名","arguments":{...}}。',
+    '- 调用工具时优先使用原生 function calling(端点已启用 tools 参数,模型会自动输出标准 tool_calls,无需手写格式);若端点不支持原生调用(报错后会自动降级),则输出语言标记为 tool_call 的 fenced code block,内容为 JSON: {"command":"指令名","arguments":{...}}。两种方式的结果都会回传给你。',
     '- 对自动注册的模块函数,先用 list_capabilities 查看函数名与参数,再用 get_tool_schema 查看详细参数说明,然后调用。',
     '- 你可以自由组合多个指令完成复杂任务(例如:扫描 Mod 库 → 从 GameBanana 下载指定类型 Mod → 安装 → 打标签 → 启动游戏),每一步的执行结果都会回传给你,根据结果决定下一步。',
     '- 缺少必需参数(如 installDir、frameAnalysisFolder、drawIb hash、downloadUrl 等用户才知道的信息)时,不要猜测或编造,先向用户提问,补齐后再调用。',
@@ -469,30 +656,58 @@ const errorText = (err: unknown): string => {
   return String(err)
 }
 
+interface NativeToolCall {
+  id: string
+  name: string
+  arguments: string
+}
+
+interface StreamChunkResult {
+  content: string
+  reasoning: string
+  toolCalls: NativeToolCall[]
+}
+
 const streamChatCompletion = async (opts: {
   apiUrl: string
   apiKey: string
   model: string
   messages: ApiMessage[]
   signal: AbortSignal
-  onDelta: (delta: string) => void
-}): Promise<string> => {
+  reasoningEffort?: string
+  tools?: Array<{ type: string; function: { name: string; description: string; parameters: unknown } }>
+  onChunk: (chunk: { content?: string; reasoning?: string }) => void
+}): Promise<StreamChunkResult> => {
   const base = opts.apiUrl.trim().replace(/\/+$/, '')
   const url = `${base}/chat/completions`
 
-  const res = await fetch(url, {
+  const buildBody = (): Record<string, unknown> => {
+    const body: Record<string, unknown> = {
+      model: opts.model,
+      messages: opts.messages,
+      stream: true,
+      temperature: STREAM_TEMPERATURE,
+    }
+    // reasoning_effort is only sent when explicitly configured; 'auto' means
+    // let the endpoint decide (avoids 400 on endpoints without the field).
+    if (opts.reasoningEffort && opts.reasoningEffort !== 'auto') {
+      body.reasoning_effort = opts.reasoningEffort
+    }
+    if (opts.tools && opts.tools.length > 0) {
+      body.tools = opts.tools
+    }
+    return body
+  }
+
+  let res = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${opts.apiKey}`,
     },
-    body: JSON.stringify({
-      model: opts.model,
-      messages: opts.messages,
-      stream: true,
-      temperature: STREAM_TEMPERATURE,
-    }),
+    body: JSON.stringify(buildBody()),
     signal: opts.signal,
+    connectTimeout: 60000,
   })
 
   if (!res.ok) {
@@ -505,10 +720,51 @@ const streamChatCompletion = async (opts: {
       } catch {
         detail = raw
       }
-    } catch {
-      // keep empty detail
+      // Some OpenAI-compatible endpoints reject the native `tools` parameter.
+      // Retry once without it so the text-protocol fallback still works.
+      if (
+        opts.tools &&
+        opts.tools.length > 0 &&
+        res.status === 400 &&
+        /tools|function|parameters/i.test(detail)
+      ) {
+        const retryBody = buildBody()
+        delete retryBody.tools
+        const retryRes = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${opts.apiKey}`,
+          },
+          body: JSON.stringify(retryBody),
+          signal: opts.signal,
+          connectTimeout: 60000,
+        })
+        if (retryRes.ok) {
+          res = retryRes
+        } else {
+          let retryDetail = ''
+          try {
+            const raw2 = await retryRes.text()
+            try {
+              const parsed2 = JSON.parse(raw2) as { error?: { message?: string } }
+              retryDetail = parsed2.error?.message ?? raw2
+            } catch {
+              retryDetail = raw2
+            }
+          } catch {
+            // keep empty
+          }
+          throw new Error(`HTTP ${retryRes.status}${retryDetail ? ` — ${retryDetail}` : ''}`)
+        }
+      }
+    } catch (err) {
+      if (err instanceof Error && err.message.startsWith('HTTP')) throw err
+      // fall through to the generic error below
     }
-    throw new Error(`HTTP ${res.status}${detail ? ` — ${detail}` : ''}`)
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}${detail ? ` — ${detail}` : ''}`)
+    }
   }
 
   const reader = res.body?.getReader()
@@ -518,7 +774,9 @@ const streamChatCompletion = async (opts: {
 
   const decoder = new TextDecoder('utf-8')
   let buffer = ''
-  let fullText = ''
+  let fullContent = ''
+  let fullReasoning = ''
+  const nativeCalls: NativeToolCall[] = []
 
   const processLine = (line: string) => {
     const trimmed = line.trim()
@@ -527,12 +785,46 @@ const streamChatCompletion = async (opts: {
     if (payload === '[DONE]') return
     try {
       const json = JSON.parse(payload) as {
-        choices?: Array<{ delta?: { content?: string } }>
+        choices?: Array<{
+          delta?: {
+            content?: string
+            reasoning_content?: string
+            tool_calls?: Array<{
+              index?: number
+              id?: string
+              function?: { name?: string; arguments?: string }
+            }>
+          }
+        }>
       }
-      const delta = json.choices?.[0]?.delta?.content
-      if (typeof delta === 'string' && delta) {
-        fullText += delta
-        opts.onDelta(delta)
+      const delta = json.choices?.[0]?.delta
+      const content = typeof delta?.content === 'string' ? delta.content : ''
+      const reasoning =
+        typeof delta?.reasoning_content === 'string' ? delta.reasoning_content : ''
+      if (content) {
+        fullContent += content
+        opts.onChunk({ content })
+      }
+      if (reasoning) {
+        fullReasoning += reasoning
+        opts.onChunk({ reasoning })
+      }
+      // Native function calling (OpenAI-compatible tool_calls).
+      // name/id arrive once in the first chunk; arguments stream incrementally.
+      if (Array.isArray(delta?.tool_calls)) {
+        for (const tc of delta.tool_calls) {
+          const index = tc.index ?? 0
+          if (!nativeCalls[index]) nativeCalls[index] = { id: '', name: '', arguments: '' }
+          if (!nativeCalls[index].id && typeof tc.id === 'string') {
+            nativeCalls[index].id = tc.id
+          }
+          if (typeof tc.function?.name === 'string' && !nativeCalls[index].name) {
+            nativeCalls[index].name = tc.function.name
+          }
+          if (typeof tc.function?.arguments === 'string') {
+            nativeCalls[index].arguments += tc.function.arguments
+          }
+        }
       }
     } catch {
       // ignore partial SSE frames
@@ -548,12 +840,46 @@ const streamChatCompletion = async (opts: {
     for (const line of lines) processLine(line)
   }
   if (buffer.trim()) processLine(buffer)
-  return fullText
+
+  return {
+    content: fullContent,
+    reasoning: fullReasoning,
+    toolCalls: nativeCalls.filter((tc) => tc && tc.name),
+  }
 }
 
 /* ═══════════════════════════════════════════════
    Tool-call protocol (text-based function calling)
    ═══════════════════════════════════════════════ */
+
+const safeParseJson = (text: string): Record<string, unknown> => {
+  try {
+    const parsed = JSON.parse(text)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {}
+  } catch {
+    return {}
+  }
+}
+
+/** Convert the precise tool registry to OpenAI-compatible function schemas.
+    Auto-registered capabilities use dotted names which OpenAI forbids, so
+    they stay on the text protocol; the rest go native. */
+const buildOpenAiTools = () => {
+  const validName = /^[a-zA-Z0-9_-]+$/
+  return commands
+    .filter((c) => validName.test(c.name) && c.inputSchema && c.inputSchema.type === 'object')
+    .slice(0, 80)
+    .map((c) => ({
+      type: 'function',
+      function: {
+        name: c.name,
+        description: c.description.slice(0, 300),
+        parameters: c.inputSchema,
+      },
+    }))
+}
 
 const extractToolCalls = (
   text: string,
@@ -621,25 +947,51 @@ const executeCommand = async (call: {
         },
       )
     } catch {
-      return {
+      const rejected: ToolEvent = {
         command: cmd.name,
         arguments: call.arguments ?? {},
         result: t('xianzun.userRejected'),
         ok: false,
       }
+      recordLog(
+        'tool',
+        `${cmd.name} [拒绝]`,
+        JSON.stringify({ args: call.arguments ?? {}, result: rejected.result }, null, 2),
+      )
+      return rejected
     }
   }
 
+  const toolStart = performance.now()
   try {
     const result = await cmd.execute(call.arguments ?? {})
-    return { command: cmd.name, arguments: call.arguments ?? {}, result: String(result), ok: true }
+    const evt: ToolEvent = {
+      command: cmd.name,
+      arguments: call.arguments ?? {},
+      result: String(result),
+      ok: true,
+      durationMs: Math.round(performance.now() - toolStart),
+    }
+    recordLog(
+      'tool',
+      `${cmd.name} [成功] ${evt.durationMs}ms`,
+      JSON.stringify({ args: evt.arguments, result: evt.result, durationMs: evt.durationMs }, null, 2),
+    )
+    return evt
   } catch (err) {
-    return {
+    const evt: ToolEvent = {
       command: cmd.name,
       arguments: call.arguments ?? {},
       result: `执行失败: ${errorText(err)}`,
       ok: false,
+      durationMs: Math.round(performance.now() - toolStart),
     }
+    recordLog(
+      'tool',
+      `${cmd.name} [失败] ${evt.durationMs}ms`,
+      JSON.stringify({ args: evt.arguments, error: evt.result, durationMs: evt.durationMs }, null, 2),
+    )
+    return evt
   }
 }
 
@@ -677,11 +1029,14 @@ const runAgentTurn = async () => {
   isStreaming.value = true
   abortController = new AbortController()
   const signal = abortController.signal
+  const turnStart = performance.now()
+  let hadError = false
 
   const assistantMsg: ChatMessage = {
     id: nextId(),
     role: 'assistant',
     content: '',
+    reasoning: '',
     streaming: true,
     toolEvents: [],
     createdAt: Date.now(),
@@ -691,16 +1046,44 @@ const runAgentTurn = async () => {
 
   const toolResultQueue: ApiMessage[] = []
   const model = appSettings.xianzunModel.trim() || 'deepseek-v4-flash'
+  const reasoningEffort = appSettings.xianzunReasoningEffort || 'auto'
 
   try {
     let rounds = 0
     for (;;) {
       rounds += 1
+      if (stopAfterTool.value) {
+        // User asked to stop while a tool was running — the tool finished,
+        // now honour the stop without firing another request.
+        stopAfterTool.value = false
+        throw new Error('Request cancelled')
+      }
+      const systemPrompt = buildSystemPrompt()
+      lastSystemPrompt.value = systemPrompt
+      try {
+        localStorage.setItem('xianzun.lastSystemPrompt', systemPrompt)
+      } catch {
+        // ignore
+      }
       const history: ApiMessage[] = [
-        { role: 'system', content: buildSystemPrompt() },
+        { role: 'system', content: systemPrompt },
         ...buildApiMessages(),
         ...toolResultQueue,
       ]
+      recordLog(
+        'chat',
+        `请求 → ${model}${rounds > 1 ? ` (工具循环 ${rounds})` : ''}`,
+        JSON.stringify(
+          {
+            reasoningEffort,
+            messages: history.length,
+            systemPromptChars: systemPrompt.length,
+            toolResultsQueued: toolResultQueue.length,
+          },
+          null,
+          2,
+        ),
+      )
 
       const raw = await streamChatCompletion({
         apiUrl: appSettings.xianzunApiUrl,
@@ -708,28 +1091,81 @@ const runAgentTurn = async () => {
         model,
         messages: history,
         signal,
-        onDelta: (delta) => {
-          assistantMsg.content += delta
+        reasoningEffort,
+        tools: buildOpenAiTools(),
+        onChunk: (chunk) => {
+          if (chunk.content) {
+            if (!assistantMsg.content) {
+              // first content token — auto-collapse the reasoning panel
+              reasoningOpenIds.value = reasoningOpenIds.value.filter(
+                (id) => id !== assistantMsg.id,
+              )
+            }
+            assistantMsg.content += chunk.content
+          }
+          if (chunk.reasoning) {
+            if (!assistantMsg.reasoning) {
+              // reasoning started — auto-expand so the user sees it streaming
+              if (!reasoningOpenIds.value.includes(assistantMsg.id)) {
+                reasoningOpenIds.value.push(assistantMsg.id)
+              }
+            }
+            assistantMsg.reasoning += chunk.reasoning
+          }
           scrollToBottomIfNear()
         },
       })
 
-      const { text: cleanText, calls } = extractToolCalls(raw)
+      const { text: cleanText, calls: textCalls } = extractToolCalls(raw.content)
+      // Merge native function calls (OpenAI tool_calls) with text-protocol calls.
+      const nativeCalls = raw.toolCalls.map((tc) => ({
+        command: tc.name,
+        arguments: safeParseJson(tc.arguments),
+      }))
+      const calls = [...textCalls, ...nativeCalls]
       assistantMsg.content = cleanText
+
+      recordLog(
+        'chat',
+        `响应 ← ${model}${rounds > 1 ? ` (工具循环 ${rounds})` : ''}`,
+        JSON.stringify(
+          {
+            contentChars: raw.content.length,
+            reasoningChars: raw.reasoning.length,
+            toolCalls: calls.length,
+            nativeCalls: nativeCalls.length,
+            elapsedMs: Math.round(performance.now() - turnStart),
+          },
+          null,
+          2,
+        ),
+      )
 
       if (calls.length === 0 || rounds >= MAX_TOOL_ROUNDS) {
         break
       }
 
       for (const call of calls) {
-        const evt = await executeCommand(call)
+        // Push a live "running" card first so the user sees the tool
+        // executing (with progress) instead of nothing until it returns.
+        const evt: ToolEvent = {
+          command: call.command,
+          arguments: call.arguments,
+          result: '',
+          ok: true,
+          status: 'running',
+        }
         assistantMsg.toolEvents?.push(evt)
+        toolRunning.value = true
+        const finalEvt = await executeCommand(call)
+        toolRunning.value = false
+        Object.assign(evt, finalEvt, { status: 'done' })
         toolResultQueue.push({
           role: 'user',
           content: [
-            `[指令执行结果] 指令: ${evt.command}`,
-            `参数: ${JSON.stringify(evt.arguments ?? {})}`,
-            `结果: ${evt.result}`,
+            `[指令执行结果] 指令: ${finalEvt.command}`,
+            `参数: ${JSON.stringify(finalEvt.arguments ?? {})}`,
+            `结果: ${finalEvt.result}`,
             '',
             '如果任务已完成,请直接给用户最终答复;如果还需要其他操作,可以继续调用指令。',
           ].join('\n'),
@@ -737,21 +1173,28 @@ const runAgentTurn = async () => {
       }
     }
   } catch (err) {
+    hadError = true
     if (isAbortError(err)) {
       assistantMsg.content = (assistantMsg.content ? assistantMsg.content + ' ' : '') + '⏹'
+      recordLog('chat', `中断 ⏹ ${model}`, `用户停止了生成,已输出 ${assistantMsg.content.length} 字符。`)
     } else {
       assistantMsg.content = ''
+      const errorMessage = `${t('xianzun.errorPrefix')}: ${errorText(err)}`
       messages.value.push({
         id: nextId(),
         role: 'error',
-        content: `${t('xianzun.errorPrefix')}: ${errorText(err)}`,
+        content: errorMessage,
         createdAt: Date.now(),
       })
+      recordLog('error', `请求失败 ${model}`, errorMessage)
     }
   } finally {
     assistantMsg.streaming = false
     isStreaming.value = false
     abortController = null
+    if (!assistantMsg.content && !assistantMsg.reasoning && !hadError) {
+      assistantMsg.content = `⏹ ${t('xianzun.emptyResponse')}`
+    }
     persist()
     void scrollToBottom()
   }
@@ -768,6 +1211,12 @@ const sendMessage = async () => {
 }
 
 const stopStreaming = () => {
+  if (toolRunning.value) {
+    // A tool (e.g. install) is executing — let it finish, stop afterwards.
+    stopAfterTool.value = true
+    ElMessage.info(t('xianzun.stopAfterTool'))
+    return
+  }
   abortController?.abort()
 }
 
@@ -1111,11 +1560,24 @@ watch(() => messages.value.length, () => void scrollToBottom())
 
 onMounted(() => {
   loadMessages()
+  loadLogs()
+  void setupProgressListeners()
   nextTick(() => {
     autoResize()
     void scrollToBottom()
     if (messages.value.length === 0) inputRef.value?.focus()
   })
+})
+
+onUnmounted(() => {
+  for (const unlisten of unlistenProgress) {
+    try {
+      unlisten()
+    } catch {
+      // ignore
+    }
+  }
+  unlistenProgress = []
 })
 </script>
 
@@ -1154,6 +1616,12 @@ onMounted(() => {
           <el-option label="deepseek-chat" value="deepseek-chat" />
           <el-option label="deepseek-reasoner" value="deepseek-reasoner" />
         </el-select>
+
+        <el-tooltip :content="t('xianzun.logs')" placement="bottom" :show-after="250">
+          <button type="button" class="xz-icon-btn" @click="logDrawerOpen = true">
+            <el-icon><Tickets /></el-icon>
+          </button>
+        </el-tooltip>
 
         <el-tooltip :content="t('xianzun.settings')" placement="bottom" :show-after="250">
           <button type="button" class="xz-icon-btn" :class="{ active: settingsOpen }" @click="settingsOpen = true">
@@ -1247,27 +1715,66 @@ onMounted(() => {
                 <div class="xz-plain-text">{{ msg.content }}</div>
               </template>
               <template v-else>
+                <div v-if="msg.reasoning" class="xz-reasoning">
+                  <button type="button" class="xz-reasoning-head" @click="toggleReasoning(msg.id)">
+                    <span class="xz-reasoning-icon" aria-hidden="true">💭</span>
+                    <span class="xz-reasoning-label">{{ t('xianzun.thinking') }}</span>
+                    <span v-if="msg.streaming && !msg.content" class="xz-reasoning-live" aria-hidden="true">…</span>
+                    <span class="xz-reasoning-meta">{{ msg.reasoning.length }} 字</span>
+                    <span class="xz-reasoning-chevron">{{ isReasoningOpen(msg.id) ? '▾' : '▸' }}</span>
+                  </button>
+                  <div v-if="isReasoningOpen(msg.id)" class="xz-reasoning-body">{{ msg.reasoning }}</div>
+                </div>
+
+                <!-- Tool calls happen between reasoning and the answer —
+                     timeline order. Running cards stay open with a progress
+                     bar; finished cards collapse to one line. -->
+                <div v-if="msg.toolEvents && msg.toolEvents.length > 0" class="xz-tools">
+                  <div
+                    v-for="(evt, idx) in msg.toolEvents"
+                    :key="idx"
+                    class="xz-tool-card"
+                    :class="{ ok: evt.ok && evt.status !== 'running', fail: !evt.ok, running: evt.status === 'running' }"
+                  >
+                    <button
+                      type="button"
+                      class="xz-tool-head"
+                      :class="{ running: evt.status === 'running' }"
+                      @click="evt.status !== 'running' && toggleTool(msg.id + '-' + idx)"
+                    >
+                      <span class="xz-tool-state">
+                        <span v-if="evt.status === 'running'" class="xz-tool-spinner" aria-hidden="true"></span>
+                        <template v-else>{{ evt.ok ? '✓' : '✕' }}</template>
+                      </span>
+                      <code class="xz-tool-name">{{ evt.command }}</code>
+                      <span v-if="evt.status === 'running'" class="xz-tool-running">
+                        {{ t('xianzun.running') }}
+                      </span>
+                      <span v-else class="xz-tool-args">{{ JSON.stringify(evt.arguments ?? {}) }}</span>
+                      <span v-if="evt.durationMs" class="xz-tool-time">{{ evt.durationMs }}ms</span>
+                      <span class="xz-tool-chevron">{{ evt.status === 'running' ? '' : (isToolExpanded(msg.id + '-' + idx) ? '▾' : '▸') }}</span>
+                    </button>
+                    <div v-if="evt.status === 'running'" class="xz-tool-body xz-tool-body-running">
+                      <div v-if="evt.progress" class="xz-tool-progress">
+                        <div class="xz-progress-track">
+                          <div class="xz-progress-fill" :style="{ width: evt.progress.percent.toFixed(1) + '%' }"></div>
+                        </div>
+                        <span class="xz-progress-text">
+                          {{ evt.progress.stage || '…' }} · {{ evt.progress.percent.toFixed(0) }}%
+                          <template v-if="evt.progress.total > 0">
+                            ({{ evt.progress.current }}/{{ evt.progress.total }})
+                          </template>
+                        </span>
+                      </div>
+                      <span class="xz-tool-running-hint">{{ t('xianzun.toolRunningHint') }}</span>
+                    </div>
+                    <div v-else-if="isToolExpanded(msg.id + '-' + idx)" class="xz-tool-body">{{ evt.result }}</div>
+                  </div>
+                </div>
+
                 <div class="xz-markdown" v-html="renderContent(msg)"></div>
                 <span v-if="msg.streaming" class="xz-caret" aria-hidden="true"></span>
               </template>
-
-              <!-- Tool call cards -->
-              <div v-if="msg.toolEvents && msg.toolEvents.length > 0" class="xz-tools">
-                <div
-                  v-for="(evt, idx) in msg.toolEvents"
-                  :key="idx"
-                  class="xz-tool-card"
-                  :class="{ ok: evt.ok, fail: !evt.ok }"
-                >
-                  <button type="button" class="xz-tool-head" @click="toggleTool(msg.id + '-' + idx)">
-                    <span class="xz-tool-state">{{ evt.ok ? '✓' : '✕' }}</span>
-                    <code class="xz-tool-name">{{ evt.command }}</code>
-                    <span class="xz-tool-args">{{ JSON.stringify(evt.arguments ?? {}) }}</span>
-                    <span class="xz-tool-chevron">{{ isToolExpanded(msg.id + '-' + idx) ? '▾' : '▸' }}</span>
-                  </button>
-                  <div v-if="isToolExpanded(msg.id + '-' + idx)" class="xz-tool-body">{{ evt.result }}</div>
-                </div>
-              </div>
             </div>
 
             <div class="xz-msg-time">
@@ -1345,6 +1852,62 @@ onMounted(() => {
       </div>
     </transition>
 
+    <!-- ═══ System prompt viewer ═══ -->
+    <el-dialog
+      v-model="promptDialogOpen"
+      class="glass-dialog"
+      :title="t('xianzun.systemPromptTitle')"
+      width="640px"
+      align-center
+    >
+      <pre class="xz-prompt-view glass-scrollbar">{{ lastSystemPrompt || t('xianzun.promptEmpty') }}</pre>
+      <template #footer>
+        <el-button @click="copyText(lastSystemPrompt)">{{ t('xianzun.copy') }}</el-button>
+        <el-button type="primary" @click="promptDialogOpen = false">{{ t('xianzun.done') }}</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- ═══ Runtime logs drawer ═══ -->
+    <el-drawer
+      v-model="logDrawerOpen"
+      :title="t('xianzun.logs')"
+      size="560px"
+      class="xz-log-drawer"
+    >
+      <div class="xz-log-tabs">
+        <button
+          v-for="tab in LOG_TABS"
+          :key="tab"
+          type="button"
+          class="xz-log-tab"
+          :class="{ active: logActiveTab === tab }"
+          @click="logActiveTab = tab"
+        >
+          {{ tab === 'all' ? t('xianzun.logAll') : logTypeLabel(tab as LogType) }}
+        </button>
+        <button type="button" class="xz-log-tab xz-log-tab-copy" @click="copyLogs">
+          <el-icon><CopyDocument /></el-icon>
+          <span>{{ t('xianzun.logsCopy') }}</span>
+        </button>
+        <button type="button" class="xz-log-tab xz-log-tab-clear" @click="clearLogs">
+          {{ t('xianzun.logsClear') }}
+        </button>
+      </div>
+      <div class="xz-log-list glass-scrollbar">
+        <div v-if="filteredLogs.length === 0" class="xz-log-empty">
+          {{ t('xianzun.logsEmpty') }}
+        </div>
+        <div v-for="log in filteredLogs" :key="log.id" class="xz-log-entry">
+          <div class="xz-log-entry-head">
+            <span class="xz-log-badge" :class="log.type">{{ logTypeLabel(log.type) }}</span>
+            <span class="xz-log-title">{{ log.title }}</span>
+            <span class="xz-log-time">{{ formatLogTime(log.time) }}</span>
+          </div>
+          <pre v-if="log.detail" class="xz-log-detail">{{ log.detail }}</pre>
+        </div>
+      </div>
+    </el-drawer>
+
     <!-- ═══ Settings dialog ═══ -->
     <el-dialog
       v-model="settingsOpen"
@@ -1386,6 +1949,19 @@ onMounted(() => {
         </label>
 
         <label class="xz-field">
+          <span class="xz-field-label">{{ t('xianzun.reasoningEffort') }}</span>
+          <el-select v-model="appSettings.xianzunReasoningEffort" class="xz-settings-model">
+            <el-option
+              v-for="opt in REASONING_EFFORT_OPTIONS"
+              :key="opt"
+              :label="opt"
+              :value="opt"
+            />
+          </el-select>
+          <span class="xz-field-hint">{{ t('xianzun.reasoningEffortHint') }}</span>
+        </label>
+
+        <label class="xz-field">
           <span class="xz-field-label">{{ t('xianzun.systemPrompt') }}</span>
           <el-input
             v-model="appSettings.xianzunSystemPrompt"
@@ -1396,6 +1972,13 @@ onMounted(() => {
         </label>
 
         <p class="xz-settings-note">{{ t('xianzun.settingsNote') }}</p>
+
+        <div class="xz-settings-actions">
+          <el-button size="small" @click="promptDialogOpen = true">
+            <el-icon><Document /></el-icon>
+            <span>{{ t('xianzun.viewSystemPrompt') }}</span>
+          </el-button>
+        </div>
       </div>
 
       <template #footer>
@@ -1768,6 +2351,233 @@ onMounted(() => {
   color: rgba(var(--theme-text-primary-rgb), 0.9);
 }
 
+/* reasoning (thinking) panel */
+.xz-reasoning {
+  margin-bottom: 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(var(--theme-warning-rgb), 0.22);
+  background: rgba(var(--theme-warning-rgb), 0.05);
+  overflow: hidden;
+}
+
+.xz-reasoning-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border: none;
+  background: transparent;
+  color: rgba(var(--theme-text-secondary-rgb), 0.85);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.xz-reasoning-head:hover {
+  background: rgba(var(--theme-warning-rgb), 0.07);
+}
+
+.xz-reasoning-icon {
+  font-size: 12px;
+}
+
+.xz-reasoning-label {
+  font-weight: 650;
+  color: rgba(var(--theme-warning-rgb), 0.9);
+}
+
+.xz-reasoning-live {
+  animation: xz-pulse 1.1s ease-in-out infinite;
+  color: rgba(var(--theme-warning-rgb), 0.8);
+}
+
+.xz-reasoning-meta {
+  margin-left: auto;
+  font-size: 11px;
+  color: rgba(var(--theme-text-secondary-rgb), 0.5);
+}
+
+.xz-reasoning-chevron {
+  color: rgba(var(--theme-text-secondary-rgb), 0.5);
+}
+
+.xz-reasoning-body {
+  padding: 4px 12px 10px;
+  border-top: 1px solid rgba(var(--theme-warning-rgb), 0.1);
+  font-size: 12px;
+  line-height: 1.7;
+  color: rgba(var(--theme-text-secondary-rgb), 0.65);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 260px;
+  overflow-y: auto;
+  user-select: text;
+}
+
+/* ── System prompt viewer ── */
+.xz-prompt-view {
+  margin: 0;
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(var(--theme-surface-tint-rgb), 0.1);
+  color: rgba(var(--theme-text-secondary-rgb), 0.85);
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 11.5px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 60vh;
+  overflow-y: auto;
+  user-select: text;
+}
+
+/* ── Settings helpers ── */
+.xz-field-hint {
+  font-size: 11px;
+  line-height: 1.5;
+  color: rgba(var(--theme-text-secondary-rgb), 0.55);
+}
+
+.xz-settings-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ── Runtime logs drawer ── */
+.xz-log-drawer :deep(.el-drawer__body) {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  padding: 16px 18px;
+}
+
+.xz-log-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+  flex: 0 0 auto;
+}
+
+.xz-log-tab {
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--theme-surface-tint-rgb), 0.14);
+  background: rgba(var(--theme-surface-tint-rgb), 0.05);
+  color: rgba(var(--theme-text-secondary-rgb), 0.8);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.xz-log-tab:hover {
+  background: rgba(var(--theme-surface-tint-rgb), 0.12);
+}
+
+.xz-log-tab.active {
+  background: rgba(var(--theme-surface-tint-rgb), 0.18);
+  border-color: rgba(var(--theme-surface-tint-rgb), 0.3);
+  color: rgba(var(--theme-text-primary-rgb), 1);
+}
+
+.xz-log-tab-clear {
+  margin-left: auto;
+  border-color: rgba(var(--theme-danger-rgb), 0.3);
+  color: var(--t-danger-text);
+}
+
+.xz-log-tab-clear:hover {
+  background: rgba(var(--theme-danger-rgb), 0.1);
+}
+
+.xz-log-tab-copy {
+  border-color: rgba(var(--theme-surface-tint-rgb), 0.2);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.xz-log-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 4px;
+}
+
+.xz-log-empty {
+  padding: 40px 0;
+  text-align: center;
+  font-size: 12.5px;
+  color: rgba(var(--theme-text-secondary-rgb), 0.5);
+}
+
+.xz-log-entry {
+  border-radius: 10px;
+  border: 1px solid rgba(var(--theme-surface-tint-rgb), 0.1);
+  background: rgba(var(--theme-surface-tint-rgb), 0.03);
+  overflow: hidden;
+}
+
+.xz-log-entry-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+}
+
+.xz-log-badge {
+  flex: 0 0 auto;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+}
+
+.xz-log-badge.chat { color: var(--t-success-text); border: 1px solid var(--t-success-border); background: var(--t-success-bg); }
+.xz-log-badge.tool { color: var(--t-warning-text); border: 1px solid var(--t-warning-border); background: var(--t-warning-bg); }
+.xz-log-badge.system { color: var(--t-danger-text); border: 1px solid rgba(var(--theme-surface-tint-rgb), 0.2); background: rgba(var(--theme-surface-tint-rgb), 0.06); }
+.xz-log-badge.error { color: var(--t-danger-text); border: 1px solid var(--t-danger-border); background: var(--t-danger-bg); }
+
+.xz-log-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(var(--theme-text-primary-rgb), 0.9);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.xz-log-time {
+  flex: 0 0 auto;
+  font-size: 10.5px;
+  color: rgba(var(--theme-text-secondary-rgb), 0.45);
+}
+
+.xz-log-detail {
+  margin: 0;
+  padding: 6px 10px 8px;
+  border-top: 1px solid rgba(var(--theme-surface-tint-rgb), 0.06);
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.55;
+  color: rgba(var(--theme-text-secondary-rgb), 0.7);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 220px;
+  overflow-y: auto;
+  user-select: text;
+}
+
 /* streaming caret */
 .xz-caret {
   display: inline-block;
@@ -1892,6 +2702,81 @@ onMounted(() => {
   max-height: 180px;
   overflow-y: auto;
   user-select: text;
+}
+
+/* running state */
+.xz-tool-card.running {
+  border-left: 3px solid rgba(var(--theme-warning-rgb), 0.7);
+  background: rgba(var(--theme-warning-rgb), 0.04);
+}
+
+.xz-tool-head.running {
+  cursor: default;
+}
+
+.xz-tool-running {
+  font-size: 11px;
+  color: rgba(var(--theme-warning-rgb), 0.9);
+  animation: xz-pulse 1.1s ease-in-out infinite;
+}
+
+.xz-tool-spinner {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid rgba(var(--theme-warning-rgb), 0.25);
+  border-top-color: rgba(var(--theme-warning-rgb), 0.9);
+  animation: xz-spin 0.8s linear infinite;
+  vertical-align: -1px;
+}
+
+@keyframes xz-spin {
+  to { transform: rotate(360deg); }
+}
+
+.xz-tool-time {
+  font-size: 10.5px;
+  color: rgba(var(--theme-text-secondary-rgb), 0.5);
+}
+
+.xz-tool-body-running {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.xz-tool-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.xz-progress-track {
+  flex: 1 1 auto;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(var(--theme-surface-tint-rgb), 0.08);
+  overflow: hidden;
+}
+
+.xz-progress-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, rgba(var(--theme-warning-rgb), 0.6), rgba(var(--theme-warning-rgb), 0.95));
+  transition: width 0.3s ease;
+}
+
+.xz-progress-text {
+  flex: 0 0 auto;
+  font-size: 10.5px;
+  color: rgba(var(--theme-text-secondary-rgb), 0.75);
+  font-family: 'Cascadia Code', Consolas, monospace;
+}
+
+.xz-tool-running-hint {
+  font-size: 11px;
+  color: rgba(var(--theme-text-secondary-rgb), 0.55);
 }
 
 /* ── Empty state ── */
@@ -2403,7 +3288,10 @@ onMounted(() => {
 /* image lightbox (template element, global for overlay) */
 .xz-lightbox {
   position: fixed;
-  inset: 0;
+  top: 32px; /* below the fixed TitleBar */
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: 3000;
   display: flex;
   align-items: center;
@@ -2450,5 +3338,11 @@ onMounted(() => {
 .xz-fade-enter-from,
 .xz-fade-leave-to {
   opacity: 0;
+}
+
+/* Runtime logs drawer — slide in below the fixed TitleBar */
+.xz-log-drawer {
+  top: 32px !important;
+  height: calc(100% - 32px) !important;
 }
 </style>

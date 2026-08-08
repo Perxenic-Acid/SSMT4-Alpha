@@ -38,6 +38,17 @@ const normalizeGameBananaTranslationProvider = (value: unknown): GameBananaTrans
 		: 'openai'
 }
 
+const REASONING_EFFORTS = ['auto', 'off', 'low', 'medium', 'high', 'max'] as const
+
+export type XianZunReasoningEffort = (typeof REASONING_EFFORTS)[number]
+
+export const REASONING_EFFORT_OPTIONS = [...REASONING_EFFORTS]
+
+const normalizeReasoningEffort = (value: unknown): XianZunReasoningEffort =>
+	typeof value === 'string' && (REASONING_EFFORTS as readonly string[]).includes(value)
+		? (value as XianZunReasoningEffort)
+		: 'auto'
+
 const normalizeSidebarGameOrder = (value: unknown): string[] => {
 	if (!Array.isArray(value)) {
 		return []
@@ -177,6 +188,7 @@ export class AppSettings {
 	xianzunApiUrl: string = 'https://api.deepseek.com/v1'
 	xianzunModel: string = 'deepseek-v4-flash'
 	xianzunSystemPrompt: string = ''
+	xianzunReasoningEffort: XianZunReasoningEffort = 'auto'
 
 	constructor(init?: Partial<AppSettings>) {
 		if (init) {
@@ -245,6 +257,7 @@ export class AppSettings {
 					: 'deepseek-v4-flash'
 				: savedXianzunModel || this.xianzunModel
 		this.xianzunSystemPrompt = init?.xianzunSystemPrompt ?? this.xianzunSystemPrompt
+		this.xianzunReasoningEffort = normalizeReasoningEffort(init?.xianzunReasoningEffort)
 		// VersionNumber is always controlled by current app code version,
 		// not by persisted settings.json.
 		this.VersionNumber = AppSettings.CURRENT_VERSION
@@ -309,6 +322,7 @@ export class AppSettings {
 			xianzunApiUrl: this.xianzunApiUrl,
 			xianzunModel: this.xianzunModel,
 			xianzunSystemPrompt: this.xianzunSystemPrompt,
+			xianzunReasoningEffort: this.xianzunReasoningEffort,
 		}
 	}
 }
