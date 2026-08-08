@@ -171,6 +171,12 @@ export class AppSettings {
 	// "skyrimspecialedition"), rather than GameBanana's numeric game ID.
 	nexusModsApiKey: string = ''
 	nexusModsGameDomain: string = ''
+	// XianZun (小尊小尊) — AI chat agent. OpenAI-compatible endpoint, so it
+	// works with DeepSeek out of the box and any compatible provider.
+	xianzunApiKey: string = ''
+	xianzunApiUrl: string = 'https://api.deepseek.com/v1'
+	xianzunModel: string = 'deepseek-chat'
+	xianzunSystemPrompt: string = ''
 
 	constructor(init?: Partial<AppSettings>) {
 		if (init) {
@@ -227,6 +233,10 @@ export class AppSettings {
 		this.showWindowShortcutEnabled = init?.showWindowShortcutEnabled ?? this.showWindowShortcutEnabled
 		this.nexusModsApiKey = init?.nexusModsApiKey ?? this.nexusModsApiKey
 		this.nexusModsGameDomain = init?.nexusModsGameDomain?.trim().toLowerCase() ?? this.nexusModsGameDomain
+		this.xianzunApiKey = init?.xianzunApiKey ?? this.xianzunApiKey
+		this.xianzunApiUrl = init?.xianzunApiUrl?.trim() || this.xianzunApiUrl
+		this.xianzunModel = init?.xianzunModel?.trim() || this.xianzunModel
+		this.xianzunSystemPrompt = init?.xianzunSystemPrompt ?? this.xianzunSystemPrompt
 		// VersionNumber is always controlled by current app code version,
 		// not by persisted settings.json.
 		this.VersionNumber = AppSettings.CURRENT_VERSION
@@ -287,6 +297,10 @@ export class AppSettings {
 			showWindowShortcutEnabled: this.showWindowShortcutEnabled,
 			nexusModsApiKey: this.nexusModsApiKey,
 			nexusModsGameDomain: this.nexusModsGameDomain,
+			xianzunApiKey: this.xianzunApiKey,
+			xianzunApiUrl: this.xianzunApiUrl,
+			xianzunModel: this.xianzunModel,
+			xianzunSystemPrompt: this.xianzunSystemPrompt,
 		}
 	}
 }

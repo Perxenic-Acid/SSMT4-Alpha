@@ -16,6 +16,7 @@ const GameBananaAuthor = () => import('../views/GameBanana/GameBananaAuthor.vue'
 const NexusMods = () => import('../views/NexusMods/NexusMods.vue')
 const MarkTextureFull = () => import('../views/MarkTexture/MarkTextureFull.vue')
 const Settings = () => import('../views/Settings/Settings.vue')
+const XianZun = () => import('../views/XianZun/XianZun.vue')
 
 const routes = [
   { path: '/', name: 'Home', component: Home, meta: { title: 'Home', requiresGame: false } },
@@ -27,6 +28,7 @@ const routes = [
   { path: '/work', name: 'WorkPage', component: WorkPage, meta: { title: 'Work Page', requiresGame: true } },
   { path: '/mark-texture-full', name: 'MarkTextureFull', component: MarkTextureFull, meta: { title: 'Extraction Postprocess', requiresGame: true } },
   { path: '/settings', name: 'Settings', component: Settings, meta: { title: 'Settings', requiresGame: false } },
+  { path: '/xianzun', name: 'XianZun', component: XianZun, meta: { title: 'XianZun', requiresGame: false } },
 ]
 
 const router = createRouter({

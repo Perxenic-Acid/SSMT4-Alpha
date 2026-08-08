@@ -241,8 +241,49 @@
       "gameType": "数据类型",
       "mods": "模组",
       "gameBanana": "GameBanana",
-      "nexusMods": "Nexus Mods"
+      "nexusMods": "Nexus Mods",
+      "xianzun": "小尊小尊"
     }
+  },
+  "xianzun": {
+    "nav": "小尊小尊",
+    "online": "在线",
+    "offline": "未配置 API Key",
+    "streaming": "生成中…",
+    "placeholder": "向小尊小尊提问…",
+    "hint": "Enter 发送 · Shift+Enter 换行",
+    "send": "发送",
+    "stop": "停止",
+    "clear": "清空对话",
+    "clearConfirm": "确定要清空当前对话吗?",
+    "cancel": "取消",
+    "copied": "已复制到剪贴板",
+    "copyFailed": "复制失败",
+    "copy": "复制",
+    "welcomeTitle": "你好,我是小尊小尊",
+    "welcomeDesc": "SSMT4 里的 AI 智能体。我可以陪你聊天、写代码、翻译,也可以调用应用内的指令帮你跳转页面、查询状态。",
+    "capabilities": "已注册指令",
+    "settings": "设置",
+    "settingsTitle": "小尊小尊 设置",
+    "apiKey": "API Key",
+    "apiKeyPlaceholder": "sk-…",
+    "apiUrl": "API 地址",
+    "model": "模型",
+    "systemPrompt": "系统提示词(可选)",
+    "systemPromptPlaceholder": "自定义小尊小尊的角色与行为…",
+    "settingsNote": "配置会自动保存到全局设置,API Key 仅保存在本机。",
+    "testConnection": "测试连接",
+    "connectOk": "连接成功",
+    "connectFail": "连接失败:{error}",
+    "done": "完成",
+    "missingKey": "还没有配置 API Key,请先在设置中填写。",
+    "errorPrefix": "出错了",
+    "suggestions": [
+      "介绍一下你自己吧",
+      "帮我写一段 TypeScript 代码",
+      "把一段话翻译成英文",
+      "列出你可以调用的指令"
+    ]
   },
   "settings": {
     "sections": {
